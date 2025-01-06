@@ -17,7 +17,7 @@ void Main()
             RLE = true,
             RLEMax = 65536,
             Golomb = true,
-            GolombM = 64,
+            GolombM = 128,
         }
     };
     

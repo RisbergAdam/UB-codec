@@ -20,6 +20,12 @@ public class RiskyCodec
         var residual = ComputeResidual(prev, curr, motionVecs);
         var transformed = Transform(residual, inverse: false);
         var coded = Coder.Encode(transformed);
+        var compressedBytes = coded.Length / 8.0;
+        var uncompressedBytes = (curr.Width * curr.Height * 3.0);
+        var sizeRatio = compressedBytes / uncompressedBytes;
+        
+        Console.WriteLine($"Size reduction: {(Math.Round(sizeRatio * 10000.0)/100.0)}%");
+        
         return (coded, motionVecs);
     }
     

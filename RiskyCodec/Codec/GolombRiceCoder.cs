@@ -17,6 +17,8 @@ public class GolombRiceCoder : ICoder
     
     public BitArray Encode(SKBitmap image)
     {
+        image = ZigZagScan(image);
+        
         var input = new int[image.Width * image.Height * 3];
     
         var bw = image.Width / 8;
@@ -36,8 +38,6 @@ public class GolombRiceCoder : ICoder
         }
 
         var output = GolombRiceEncode(RLEEncode(input));
-        // var compressionRatio = Math.Round(output.Length / 8.0 / input.Length * 10000.0) / 100.0;
-        // Console.WriteLine($"Image encoded, in bytes: {input.Length} out bytes: {output.Length / 8} ratio: {compressionRatio}%");
         return output;
     }
 
@@ -63,8 +63,8 @@ public class GolombRiceCoder : ICoder
                 output.SetPixel(bx * 8 + x, by * 8 + y, c);
             }
         }
-
-        return output;
+        
+        return ZigZagScan(output, inverse:true);
     }
     
     public SKBitmap ZigZagScan(SKBitmap input, bool inverse = false)
