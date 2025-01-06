@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RiskyCodec", "RiskyCodec\RiskyCodec.csproj", "{9BF4DBC4-894A-4F9D-A016-F5AECCBABD9F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UBCodec", "UBCodec\UBCodec.csproj", "{9BF4DBC4-894A-4F9D-A016-F5AECCBABD9F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

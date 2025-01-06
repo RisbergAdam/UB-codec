@@ -1,12 +1,12 @@
-﻿using RiskyCodec.Codec;
+﻿using UBCodec.Codec;
 
-using static RiskyCodec.Codec.ImageUtils;
+using static UBCodec.Codec.ImageUtils;
 
 Main(); return;
 
 void Main()
 {
-    var codec = new RiskyCodec.Codec.RiskyCodec()
+    var codec = new UBCodec.Codec.UBCodec()
     {
         BlockSize = 16,
         MotionSearchDist = 5,

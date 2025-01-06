@@ -1,4 +1,4 @@
-namespace RiskyCodec.Codec;
+namespace UBCodec.Codec;
 
 public class DCTInteger1Transform : ITransform
 {

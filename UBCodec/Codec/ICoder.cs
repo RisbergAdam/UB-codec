@@ -1,7 +1,7 @@
 using System.Collections;
 using SkiaSharp;
 
-namespace RiskyCodec.Codec;
+namespace UBCodec.Codec;
 
 public interface ICoder
 {

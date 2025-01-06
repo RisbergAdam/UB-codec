@@ -1,4 +1,4 @@
-namespace RiskyCodec.Codec;
+namespace UBCodec.Codec;
 
 public interface ITransform
 {

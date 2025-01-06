@@ -1,4 +1,6 @@
-namespace RiskyCodec.Codec;
+using UBCodec.Codec;
+
+namespace UBCodec.Codec;
 
 using static ArrayUtils;
 

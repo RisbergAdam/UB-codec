@@ -1,9 +1,9 @@
 using System.Collections;
 using SkiaSharp;
 
-namespace RiskyCodec.Codec;
+namespace UBCodec.Codec;
 
-public class RiskyCodec
+public class UBCodec
 {
 
     public int BlockSize { get; set; } = 16;

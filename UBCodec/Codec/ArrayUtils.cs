@@ -1,6 +1,6 @@
 using SkiaSharp;
 
-namespace RiskyCodec.Codec;
+namespace UBCodec.Codec;
 
 public class ArrayUtils
 {

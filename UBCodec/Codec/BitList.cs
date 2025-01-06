@@ -1,6 +1,6 @@
 using System.Collections;
 
-namespace RiskyCodec.Codec;
+namespace UBCodec.Codec;
 
 public class BitList
 {

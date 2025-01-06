@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using SkiaSharp;
 
-namespace RiskyCodec.Codec;
+namespace UBCodec.Codec;
 
 public class ImageUtils
 {
