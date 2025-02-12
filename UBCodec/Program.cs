@@ -1,35 +1,30 @@
 ﻿using UBCodec.Codec;
-
+using UBCodec.Codec.NextGen;
 using static UBCodec.Codec.ImageUtils;
 
 Main(); return;
 
 void Main()
 {
-    var codec = new UBCodec.Codec.UBCodec()
+    var core = new EncoderCore();
+    
+    var frame1 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-001.png"), 32);
+    var frame2 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-020.png"), 32);
+    var frame2half = Downsample(frame2);
+    var frame2save = frame2.Copy();
+
+    var c1 = frame1.GetPixel(100, 100);
+    var c2 = Utils.FromYUV(Utils.ToYUV(c1));
+    
+    for (var y = 0; y < 8; y++)
+    for (var x = 0; x < 8; x++)
     {
-        BlockSize = 16,
-        MotionSearchDist = 5,
-        Transformer = new DCTInteger1Transform(826),
-        Coder = new GolombRiceCoder()
-        {
-            ZigZag = true,
-            RLE = true,
-            RLEMax = 65536,
-            Golomb = true,
-            GolombM = 128,
-        }
-    };
+        core.LoadBlock(frame1, frame2, frame2half, x, y);
+        core.ReadBlock(frame2, x, y);
+    }
     
-    var frame1 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-001.png"), codec.BlockSize);
-    var frame2 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-020.png"), codec.BlockSize);
-    
-    var (encoded, motionVecs) = codec.EncodeFrame(frame1, frame2);
-    var frame2rec = codec.ReconstructFrame(frame1, encoded, motionVecs);
-    
-    WritePng(frame1, "../../../output/input_f1.png");
-    WritePng(frame2, "../../../output/input_f2.png");
-    WritePng(frame2rec, "../../../output/input_f2_rec.png");
+    ImageUtils.WritePng(frame2save, "../../../output/input_f2.png");
+    ImageUtils.WritePng(frame2, "../../../output/output_f2.png");
     
     Console.WriteLine("Done!");
 }
