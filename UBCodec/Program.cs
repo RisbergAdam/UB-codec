@@ -11,10 +11,6 @@ void Main()
     var frame1 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-001.png"), 32);
     var frame2 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-020.png"), 32);
     var frame2half = Downsample(frame2);
-    var frame2save = frame2.Copy();
-
-    var c1 = frame1.GetPixel(100, 100);
-    var c2 = Utils.FromYUV(Utils.ToYUV(c1));
     
     for (var y = 0; y < 8; y++)
     for (var x = 0; x < 8; x++)
@@ -23,7 +19,6 @@ void Main()
         core.ReadBlock(frame2, x, y);
     }
     
-    ImageUtils.WritePng(frame2save, "../../../output/input_f2.png");
     ImageUtils.WritePng(frame2, "../../../output/output_f2.png");
     
     Console.WriteLine("Done!");

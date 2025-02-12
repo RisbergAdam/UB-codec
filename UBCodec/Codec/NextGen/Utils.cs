@@ -11,10 +11,11 @@ public class Utils
     
     public static long Pack10BitValues(short[] values)
     {
-        return ((values[0] & 0x3FF) << 30)
-               | ((values[1] & 0x3FF) << 20)
-               | ((values[2] & 0x3FF) << 10)
-               | (values[3] & 0x3FF);
+        return 0L
+               | ((values[0] & 0x3FFL) << 30)
+               | ((values[1] & 0x3FFL) << 20)
+               | ((values[2] & 0x3FFL) << 10)
+               | (values[3] & 0x3FFL);
     }
     
     public static byte[] Unpack8BitValues(long data)
@@ -30,10 +31,10 @@ public class Utils
     public static short[] Unpack10BitValues(long data)
     {
         var values = new short[4];
-        values[0] = (short)((data >> 30) & 0x3FF);
-        values[1] = (short)((data >> 20) & 0x3FF);
-        values[2] = (short)((data >> 10) & 0x3FF);
-        values[3] = (short)((data) & 0x3FF);
+        values[0] = (short)((data >> 30) & 0x3FFL);
+        values[1] = (short)((data >> 20) & 0x3FFL);
+        values[2] = (short)((data >> 10) & 0x3FFL);
+        values[3] = (short)((data) & 0x3FFL);
         return values;
     }
     
