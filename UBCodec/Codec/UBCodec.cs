@@ -78,6 +78,8 @@ public class UBCodec
                         }
                     }
                 }
+                
+                Console.WriteLine($"Motionvec {xBlock}, {yBlock} error: {errorBest},  {xBest}, {yBest}");
 
                 var c = new SKColor(
                     (byte)(xBest + 127),
