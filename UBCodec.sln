@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UBCodec", "UBCodec\UBCodec.csproj", "{9BF4DBC4-894A-4F9D-A016-F5AECCBABD9F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UBCodec.Test", "UBCodec.Test\UBCodec.Test.csproj", "{E0C60C6A-3E1C-491F-8396-9B3539F70523}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +14,9 @@ Global
 		{9BF4DBC4-894A-4F9D-A016-F5AECCBABD9F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9BF4DBC4-894A-4F9D-A016-F5AECCBABD9F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9BF4DBC4-894A-4F9D-A016-F5AECCBABD9F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E0C60C6A-3E1C-491F-8396-9B3539F70523}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E0C60C6A-3E1C-491F-8396-9B3539F70523}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E0C60C6A-3E1C-491F-8396-9B3539F70523}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E0C60C6A-3E1C-491F-8396-9B3539F70523}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

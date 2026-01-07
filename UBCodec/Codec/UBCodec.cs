@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics;
 using SkiaSharp;
 
 namespace UBCodec.Codec;
@@ -16,6 +17,8 @@ public class UBCodec
 
     public (BitArray, SKBitmap) EncodeFrame(SKBitmap prev, SKBitmap curr)
     {
+        var sw = new Stopwatch();
+        sw.Start();
         var motionVecs = NeighbourMotionSearch(prev, curr);
         var residual = ComputeResidual(prev, curr, motionVecs);
         var transformed = Transform(residual, inverse: false);
@@ -25,6 +28,8 @@ public class UBCodec
         var sizeRatio = compressedBytes / uncompressedBytes;
         
         Console.WriteLine($"Size reduction: {(Math.Round(sizeRatio * 10000.0)/100.0)}%");
+        sw.Stop();
+        Console.WriteLine($"Encoded frame in {sw.ElapsedMilliseconds} ms into {coded.Count/8/1024} kb");
         
         return (coded, motionVecs);
     }
@@ -79,8 +84,8 @@ public class UBCodec
                     }
                 }
                 
-                Console.WriteLine($"Motionvec {xBlock}, {yBlock} error: {errorBest},  {xBest}, {yBest}");
-
+                // Console.WriteLine($"Motionvec ({xBlock}, {yBlock}) error: {errorBest},  {xBest}, {yBest}");
+                
                 var c = new SKColor(
                     (byte)(xBest + 127),
                     (byte)(yBest + 127),
@@ -156,6 +161,7 @@ public class UBCodec
             int[,] rt = Transform8x8(r, inverse);
             int[,] gt = Transform8x8(g, inverse);
             int[,] bt = Transform8x8(b, inverse);
+
 
             pixelTrans = inverse ? 127 : 0;
             for (var y = 0; y < 8; y++)

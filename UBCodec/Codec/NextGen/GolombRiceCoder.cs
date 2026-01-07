@@ -1,7 +1,7 @@
 using System.Collections;
 using SkiaSharp;
 
-namespace UBCodec.Codec;
+namespace UBCodec.Codec.NextGen;
 
 public class GolombRiceCoder : ICoder
 {
@@ -15,59 +15,34 @@ public class GolombRiceCoder : ICoder
     
     public bool ZigZag { get; set; } = true;
     
-    public BitArray Encode(SKBitmap image)
+    public void Encode(int blockSize, int[,] input, ByteStreamWriter output)
     {
-        image = ZigZagScan(image);
-        
-        var input = new int[image.Width * image.Height * 3];
-    
-        var bw = image.Width / 8;
-        var bh = image.Height / 8;
-    
-        for (var by = 0; by < bh; by++)
-        for (var bx = 0; bx < bw; bx++)
+        var input1d = new int[blockSize * blockSize];
+
+        for (int y = 0; y < blockSize; y++)
+        for (int x = 0; x < blockSize; x++)
         {
-            for (var y = 0; y < 8; y++)
-            for (var x = 0; x < 8; x++)
-            {
-                var p = image.GetPixel(bx * 8 + x, by * 8 + y);
-                input[((by * bw + bx) * 8 * 8 + y * 8 + x) * 3 + 0] = p.Red - 127;
-                input[((by * bw + bx) * 8 * 8 + y * 8 + x) * 3 + 1] = p.Green - 127;
-                input[((by * bw + bx) * 8 * 8 + y * 8 + x) * 3 + 2] = p.Blue - 127;
-            }
-        }
-
-        var output = GolombRiceEncode(RLEEncode(input));
-        return output;
-    }
-
-    public SKBitmap Decode(BitArray input, SKImageInfo imageInfo)
-    {
-        var output = new SKBitmap(imageInfo);
-        var decoded = RLEDecode(GolombRiceDecode(input));
-
-        var bw = output.Width / 8;
-        var bh = output.Height / 8;
-    
-        for (var by = 0; by < bh; by++)
-        for (var bx = 0; bx < bw; bx++)
-        {
-            for (var y = 0; y < 8; y++)
-            for (var x = 0; x < 8; x++)
-            {
-                var c = new SKColor(
-                    (byte) (decoded[((by * bw + bx) * 8 * 8 + y * 8 + x) * 3 + 0] + 127),
-                    (byte) (decoded[((by * bw + bx) * 8 * 8 + y * 8 + x) * 3 + 1] + 127),
-                    (byte) (decoded[((by * bw + bx) * 8 * 8 + y * 8 + x) * 3 + 2] + 127)
-                );
-                output.SetPixel(bx * 8 + x, by * 8 + y, c);
-            }
+            input1d[y * blockSize + x] = input[x, y];
         }
         
-        return ZigZagScan(output, inverse:true);
+        var encoded = _GolombRiceEncode(_RLEEncode(input1d));
+        output
+            // .WriteUInt16((ushort)encoded.Count)
+            .WriteBitArray(encoded.GetArray());
+    }
+
+    public void Decode(int blockSize, BitArray input, int[,] output)
+    {
+        var decoded = _RLEDecode(_GolombRiceDecode(input));
+        
+        for (int y = 0; y < blockSize; y++)
+        for (int x = 0; x < blockSize; x++)
+        {
+            output[x, y] = decoded[y * blockSize + x];
+        }
     }
     
-    public SKBitmap ZigZagScan(SKBitmap input, bool inverse = false)
+    private SKBitmap _ZigZagScan(SKBitmap input, bool inverse = false)
     {
         if (!ZigZag) return input;
     
@@ -112,14 +87,11 @@ public class GolombRiceCoder : ICoder
         return output;
     }
     
-    public BitArray GolombRiceEncode(int[] input)
+    private BitList _GolombRiceEncode(int[] input)
     {
-        if (!Golomb) return new BitArray(input);
-            
         var bits = new BitList();
         int K = (int) Math.Log2(GolombM);
         
-
         foreach (var v in input)
         {
             var value = v >= 0 ? v * 2 : -v * 2 - 1;
@@ -130,10 +102,10 @@ public class GolombRiceCoder : ICoder
             for (var i = 0; i < K; i++) bits.AddBit((R & (1 << i)) != 0 ? 1 : 0);
         }
         
-        return bits.GetArray();
+        return bits;
     }
 
-    public int[] GolombRiceDecode(BitArray input)
+    private int[] _GolombRiceDecode(BitArray input)
     {
         if (!Golomb)
         {
@@ -180,7 +152,7 @@ public class GolombRiceCoder : ICoder
         }
     }
 
-    public int[] RLEEncode(int[] input)
+    private int[] _RLEEncode(int[] input)
     {
         if (!RLE) return input;
         
@@ -206,7 +178,7 @@ public class GolombRiceCoder : ICoder
         return output.ToArray();
     }
     
-    public int[] RLEDecode(int[] input)
+    private int[] _RLEDecode(int[] input)
     {
         if (!RLE) return input;
         

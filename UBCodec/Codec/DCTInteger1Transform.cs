@@ -51,7 +51,13 @@ public class DCTInteger1Transform : ITransform
         {
             output[x, y] += (temp[i, y] * mt[x, i]);
         }
-        
+
+        var inSum = 0;
+        for (var y = 0; y < 8; y++)
+        for (var x = 0; x < 8; x++)
+            inSum += input[x, y];
+
+
         var outputScaled = new int[8, 8];
         for (var y = 0; y < 8; y++)
         for (var x = 0; x < 8; x++)

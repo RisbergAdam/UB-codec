@@ -1,6 +1,6 @@
 ﻿namespace UBCodec.Codec.NextGen;
 
-public class Encoder
+public class ByteStreamReader(byte[] _array)
 {
     
 }
