@@ -2,5 +2,7 @@
 
 public interface ITransform
 {
-    void Transform(int blockSize, byte[,] input, bool inverse, int[,] output);
+    void TransformForward(int blockSize, byte[,] input, int[,] output);
+    
+    void TransformInverse(int blockSize, int[,] input, byte[,] output);
 }

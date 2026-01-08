@@ -2,7 +2,7 @@ namespace UBCodec.Codec.NextGen;
 
 public class DCTInt1Transform : ITransform
 {
-    private int[,] M =
+    private static int[,] M_32 =
     {
         { 11, 16, 15, 13, 11, 9, 6, 3 },
         { 11, 13, 6, -3, -11, -16, -15, -9 },
@@ -14,11 +14,36 @@ public class DCTInt1Transform : ITransform
         { 11, -16, 15, -13, 11, -9, 6, -3 },
     };
 
-    private int QFactor = 32;
+    private static int[,] M_826 =
+    {
+        { 292, 405, 382, 343, 292, 229, 158, 81 },
+        { 292, 343, 158, -81, -292, -405, -382, -229 },
+        { 292, 229, -158, -405, -292, 81, 382, 343 },
+        { 292, 81, -382, -229, 292, 343, -158, -405 },
+        { 292, -81, -382, 229, 292, -343, -158, 405 },
+        { 292, -229, -158, 405, -292, -81, 382, -343 },
+        { 292, -343, 158, 81, -292, 405, -382, 229 },
+        { 292, -405, 382, -343, 292, -229, 158, -81 },
+    };
+
+    private int[,] M = M_826;
+    
+    private int[,] MT = new int[8, 8];
+
+    private int QFactor = 826;
     
     private int[,] _workmem = new int[8, 8];
 
-    public int[,] Transform(int[,] input, bool inverse)
+    public DCTInt1Transform()
+    {
+        for (var y = 0; y < 8; y++)
+        for (var x = 0; x < 8; x++)
+        {
+            MT[x, y] = M[y, x];
+        }
+    }
+
+    public int[,] Transform(int[,] input)
     {
         var blockSize = input.GetLength(0);
         var binput = new byte[blockSize, blockSize];
@@ -30,11 +55,11 @@ public class DCTInt1Transform : ITransform
         }
         
         var output = new int[8, 8];
-        Transform(blockSize, binput, inverse, output);
+        TransformForward(blockSize, binput, output);
         return output;
     }
-    
-    public void Transform(int blockSize, byte[,] input, bool inverse, int[,] output)
+
+    public void TransformForward(int blockSize, byte[,] input, int[,] output)
     {
         var subBlocks = blockSize / 8;
         
@@ -52,28 +77,15 @@ public class DCTInt1Transform : ITransform
             for (var x = 0; x < 8; x++)
             for (var i = 0; i < 8; i++)
             {
-                if (inverse)
-                {
-                    _workmem[x, y] += M[y, i] * input[x + 8 * xb, i + 8 * yb];
-                }
-                else
-                {
-                    _workmem[x, y] += M[i, y] * (input[x + 8 * xb, i + 8 * yb] - 127);
-                }
+                _workmem[x, y] += M[i, y] * (input[x + 8 * xb, i + 8 * yb] - 127);
+                // _workmem[x, y] += M[i, y] * (input[x + 8 * xb, i + 8 * yb]);
             }
             
             for (var y = 0; y < 8; y++)
             for (var x = 0; x < 8; x++)
             for (var i = 0; i < 8; i++)
             {
-                if (inverse)
-                {
-                    output[x + 8*xb, y + 8*yb] += _workmem[i, y] * M[x, i];
-                }
-                else
-                {
-                    output[x + 8*xb, y + 8*yb] += _workmem[i, y] * M[i, x];   
-                }
+                output[x + 8*xb, y + 8*yb] += _workmem[i, y] * M[i, x];
             }
 
             var maxCoef = 0;
@@ -84,8 +96,44 @@ public class DCTInt1Transform : ITransform
                 maxCoef = Math.Max(maxCoef, output[x + 8 * xb, y + 8 * yb]);
                 output[x + 8*xb, y + 8*yb] /= QFactor * QFactor;
             }
-            
             // Console.WriteLine(maxCoef);
+        }
+    }
+    
+    public void TransformInverse(int blockSize, int[,] input, byte[,] output)
+    {
+        var subBlocks = blockSize / 8;
+        
+        for (var yb = 0; yb < subBlocks; yb++)
+        for (var xb = 0; xb < subBlocks; xb++)
+        {
+            for (var y = 0; y < 8; y++)
+            for (var x = 0; x < 8; x++)
+            {
+                output[x + 8 * xb, y + 8 * yb] = 0;
+                _workmem[x, y] = 0;
+            }
+            
+            for (var y = 0; y < 8; y++)
+            for (var x = 0; x < 8; x++)
+            for (var i = 0; i < 8; i++)
+            {
+                _workmem[x, y] += M[y, i] * input[x + 8 * xb, i + 8 * yb];
+            }
+            
+            for (var y = 0; y < 8; y++)
+            for (var x = 0; x < 8; x++)
+            for (var i = 0; i < 8; i++)
+            {
+                output[x + 8*xb, y + 8*yb] += (byte) (_workmem[i, y] * M[x, i] / (QFactor * QFactor) + 15);
+            }
+            
+            for (var y = 0; y < 8; y++)
+            for (var x = 0; x < 8; x++)
+            {
+                // output[x + 8*xb, y + 8*yb] /= QFactor * QFactor;
+                output[x + 8 * xb, y + 8 * yb] += 7;
+            }
         }
     }
 

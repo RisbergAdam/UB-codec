@@ -26,6 +26,8 @@ public class ByteStreamWriter
     public ByteStreamWriter WriteBitArray(BitArray array)
     {
         var arrBytes = (array.Count - 1) / 8 + 1;
+        var bytes = new List<byte>();
+        WriteUInt16((ushort) arrBytes);
         for (var i = 0; i < arrBytes; i++)
         {
             byte b = 0;
@@ -33,12 +35,21 @@ public class ByteStreamWriter
             {
                 var bitIx = i * 8 + j;
                 var bit = bitIx < array.Count && array.Get(bitIx);
-                b = (byte)((b << 1) | (bit ? 1 : 0));
+                b |= (byte)((bit ? 1 : 0) << j);
             }
-            _list.Add(b);
+            bytes.Add(b);
         }
+        
+        _list.AddRange(bytes);
         
         return this;
     }
+
+    private string BitArrayString(BitArray arr)
+    {
+        var s = "";
+        for (var i = 0; i < arr.Count; i++) s += arr.Get(i) ? "1" : "0";
+        return s;
+     }
 
 }

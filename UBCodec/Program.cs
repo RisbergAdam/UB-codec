@@ -35,7 +35,7 @@ void Main()
     });
 
     var frame1 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-001.png"), codec2.Config.BlockSize);
-    var frame2 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-010.png"), codec2.Config.BlockSize);
+    var frame2 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-020.png"), codec2.Config.BlockSize);
 
     /*var (encoded, motionVecs) = codec.EncodeFrame(frame1, frame2);
     var frame2rec = codec.ReconstructFrame(frame1, encoded, motionVecs);
@@ -47,6 +47,8 @@ void Main()
     // codec.EncodeFrame(frame1, frame2);
     var encoded = codec2.EncodeFrame(frame1, frame2);
     var frame2rec = codec2.DecodeFrame(frame1, encoded);
+    
+    // WritePng(YCoCgBuffer.FromBitmap(frame1).ToBitmap(), "../../../output/test.png");
 
     /*var tr = new UBCodec.Codec.DCTReferenceTransform();
     var t1 = new UBCodec.Codec.DCTInteger1Transform(826);

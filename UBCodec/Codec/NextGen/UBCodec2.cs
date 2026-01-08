@@ -31,8 +31,8 @@ public class UBCodec2(CodecConfig config)
         sw.Start();
         var byteStream = new ByteStreamWriter();
         
-        var prev = YCoCgBuffer.FromImage(prevBitmap);
-        var curr = YCoCgBuffer.FromImage(currBitmap);
+        var prev = YCoCgBuffer.FromBitmap(prevBitmap);
+        var curr = YCoCgBuffer.FromBitmap(currBitmap);
         
         var xBlocks = curr.Width / config.BlockSize;
         var yBlocks = curr.Height / config.BlockSize;
@@ -56,6 +56,13 @@ public class UBCodec2(CodecConfig config)
 
     public SKBitmap DecodeFrame(SKBitmap prevBitmap, byte[] encoded)
     {
-        throw new NotImplementedException();
+        var prev = YCoCgBuffer.FromBitmap(prevBitmap);
+        var curr = YCoCgBuffer.FromSize(prev.Width, prev.Height);
+
+        var byteStream = new ByteStreamReader(encoded);
+
+        _core.Decode(byteStream, prev, curr);
+
+        return curr.ToBitmap();
     }
 }

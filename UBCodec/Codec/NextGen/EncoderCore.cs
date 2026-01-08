@@ -62,19 +62,42 @@ class EncoderCore(CodecConfig config)
     public void Encode(ByteStreamWriter byteStream)
     {
         var streamSize = byteStream.Count;
-        var endSpan = MeasureTime();
         var blockMotion = config.MotionEstimator.EstimateMotion(_YBuffer, _YBufferPrev);
-        endSpan("blockMotion");
-        ComputeResidual(_YBuffer, _YBufferPrev, blockMotion, output: _workmem1);
-        endSpan("residual");
-        config.DCT.Transform(config.BlockSize, _workmem1, false, output: _workmem2);
-        endSpan("transform");
-        QuantizeCoefficients(config.BlockSize, _workmem2);
-        endSpan("quantize");
         WriteBlockHeader(byteStream, blockMotion);
+        var bytesHeader = byteStream.Count - streamSize;
+        streamSize = byteStream.Count;
+        
+        // Y-channel
+        ComputeResidual(_YBuffer, _YBufferPrev, 1, blockMotion, output: _workmem1);
+        config.DCT.TransformForward(config.BlockSize, _workmem1, output: _workmem2);
+        QuantizeCoefficients(config.BlockSize, _workmem2);
+        
         config.Coder.Encode(config.BlockSize, _workmem2, output: byteStream);
-        endSpan("encode");
-        var blockBytes = byteStream.Count - streamSize;
+        var bytesY = byteStream.Count - streamSize;
+        streamSize = byteStream.Count;
+        
+        // Co-channel
+        ComputeResidual(_CoBuffer, _CoBufferPrev, 2, blockMotion, output: _workmem1);
+        config.DCT.TransformForward(config.BlockSize/2, _workmem1, output: _workmem2);
+        QuantizeCoefficients(config.BlockSize/2, _workmem2);
+        config.Coder.Encode(config.BlockSize/2, _workmem2, output: byteStream);
+        var bytesCo = byteStream.Count - streamSize;
+        streamSize = byteStream.Count;
+        
+        // Cg-channel
+        ComputeResidual(_CgBuffer, _CgBufferPrev, 2, blockMotion, output: _workmem1);
+        config.DCT.TransformForward(config.BlockSize/2, _workmem1, output: _workmem2);
+        QuantizeCoefficients(config.BlockSize/2, _workmem2);
+        config.Coder.Encode(config.BlockSize/2, _workmem2, output: byteStream);
+        var bytesCg = byteStream.Count - streamSize;
+    }
+
+    public void Decode(ByteStreamReader byteStream, YCoCgBuffer prev, YCoCgBuffer curr)
+    {
+        var (rect, blockMotion) = ReadBlockHeader(byteStream);
+        config.Coder.Decode(config.BlockSize, byteStream, _workmem2);
+        QuantizeCoefficients(config.BlockSize, _workmem2, inverse:true);
+        // config.DCT.TransformInverse(config.BlockSize, _workmem2, output: _workmem1);
     }
 
     private Action<string> MeasureTime()
@@ -92,37 +115,44 @@ class EncoderCore(CodecConfig config)
     private void WriteBlockHeader(ByteStreamWriter stream, MotionEstimate blockMotion)
     {
         stream
-            .WriteUInt16((ushort)_region.X)
-            .WriteUInt16((ushort)_region.Y)
-            .WriteUInt16((ushort)_region.Width)
-            .WriteUInt16((ushort)_region.Height)
+            .WriteUInt8((byte)(_region.X/config.BlockSize))
+            .WriteUInt8((byte)(_region.Y/config.BlockSize))
             .WriteUInt8((byte)(blockMotion.X + 127))
             .WriteUInt8((byte)(blockMotion.Y + 127));
     }
 
-    private SKColor FromYCoCg((byte, byte, byte) YCoCg)
+    private (Rectangle, MotionEstimate) ReadBlockHeader(ByteStreamReader reader)
     {
-        var (Y, Co, Cg) = YCoCg;
-        byte r = (byte) (Y + Co - Cg);
-        byte g = (byte) (Y + Cg);
-        byte b = (byte) (Y - Cg - Cg);
-        return new SKColor(r, g, b);
+        return (
+            new Rectangle(
+                reader.ReadUInt8(),
+                reader.ReadUInt8(),
+                config.BlockSize,
+                config.BlockSize
+            ),
+            new MotionEstimate
+            {
+                X = reader.ReadUInt8() - 127,
+                Y = reader.ReadUInt8() - 127
+            }
+        );
     }
 
-    private void ComputeResidual(byte[,] buffer, byte[,] prevBuffer, MotionEstimate blockMotion, byte[,] output)
+    private void ComputeResidual(byte[,] block, byte[,] blockPrev, int downsample, MotionEstimate blockMotion, byte[,] output)
     {
-        var bufferSize = buffer.GetLength(0);
-        var dx = blockMotion.X;
-        var dy = blockMotion.Y;
+        var blockSize = block.GetLength(0);
         
-        for (var y = 0; y < bufferSize; y++)
-        for (var x = 0; x < bufferSize; x++)
+        var xOffset = (blockMotion.X + config.ReferenceBlockPadding) / downsample;
+        var yOffset = (blockMotion.Y + config.ReferenceBlockPadding) / downsample;
+        
+        for (var y = 0; y < blockSize; y++)
+        for (var x = 0; x < blockSize; x++)
         {
-            output[x, y] = (byte) ((buffer[x, y] - prevBuffer[x + dx + config.ReferenceBlockPadding, y + dy + config.ReferenceBlockPadding]) / 2 + 127);
+            output[x, y] = (byte) ((block[x, y] - blockPrev[x + xOffset, y + yOffset]) / 2 + 127);
         }
     }
     
-    private void QuantizeCoefficients(int blockSize, int[,] workmem)
+    private void QuantizeCoefficients(int blockSize, int[,] workmem, bool inverse = false)
     {
         int[,] Q =
         {
@@ -148,7 +178,8 @@ class EncoderCore(CodecConfig config)
             for (var y = 0; y < 8; y++)
             for (var x = 0; x < 8; x++)
             {
-                workmem[x + 8*xb, y + 8*yb] /= Q[x, y];
+                if (inverse) workmem[x + 8*xb, y + 8*yb] *= Q[x, y];
+                else workmem[x + 8*xb, y + 8*yb] /= Q[x, y];
             }
         }
     }
