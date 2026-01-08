@@ -34,59 +34,32 @@ void Main()
         },
     });
 
-    var frame1 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-001.png"), codec2.Config.BlockSize);
-    var frame2 = BlockResize(ReadPng("../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-020.png"), codec2.Config.BlockSize);
-
-    /*var (encoded, motionVecs) = codec.EncodeFrame(frame1, frame2);
-    var frame2rec = codec.ReconstructFrame(frame1, encoded, motionVecs);
+    var frame1 = BlockResize(ReadPng("../../../resources/mountain-village-split/frame_0001.png"), codec2.Config.BlockSize);
+    var frame2 = BlockResize(ReadPng("../../../resources/mountain-village-split/frame_0004.png"), codec2.Config.BlockSize);
     
+    // WritePng(YCoCgBuffer.FromBitmap(frame1).ToBitmap(), "../../../output/output.png");
+    
+    /*var encoded = codec2.EncodeFrame(frame1, frame2);
+    var frame2rec = codec2.DecodeFrame(frame1, encoded);
     WritePng(frame1, "../../../output/input_f1.png");
     WritePng(frame2, "../../../output/input_f2.png");
     WritePng(frame2rec, "../../../output/input_f2_rec.png");*/
-
-    // codec.EncodeFrame(frame1, frame2);
-    var encoded = codec2.EncodeFrame(frame1, frame2);
-    var frame2rec = codec2.DecodeFrame(frame1, encoded);
     
-    // WritePng(YCoCgBuffer.FromBitmap(frame1).ToBitmap(), "../../../output/test.png");
+    var prevFrame = BlockResize(ReadPng("../../../resources/mountain-village-split/frame_0001.png"), codec2.Config.BlockSize);
 
-    /*var tr = new UBCodec.Codec.DCTReferenceTransform();
-    var t1 = new UBCodec.Codec.DCTInteger1Transform(826);
-    var t2 = new DCTInt1Transform();
-
-    int[,] data =
+    for (var i = 2; i < 100; i++)
     {
-        { 150, 0, 0, 0, 0, 0, 0, 0 },
-        { 0, 0, 0, 0, 0, 0, 0, 0 },
-        { 0, 0, 0, 0, 0, 0, 0, 0 },
-        { 0, 0, 0, 0, 0, 0, 0, 0 },
-        { 0, 0, 0, 0, 0, 0, 0, 0 },
-        { 0, 0, 0, 0, 0, 0, 0, 0 },
-        { 0, 0, 0, 0, 0, 0, 0, 0 },
-        { 0, 0, 0, 0, 0, 0, 0, 0 },
-    };
+        Console.WriteLine($"Encoding frame {i}...");
+        var frameFile = $"frame_{i.ToString().PadLeft(4, '0')}.png";
+        
+        var currFrame = BlockResize(ReadPng($"../../../resources/mountain-village-split/{frameFile}"), codec2.Config.BlockSize);
+        var encoded = codec2.EncodeFrame(prevFrame, currFrame);
+        var frameRec = codec2.DecodeFrame(prevFrame, encoded);
 
-    Console.WriteLine("reference:"); PrintArray(tr.Transform(data, false));
-    Console.WriteLine("integer1:"); PrintArray(t1.Transform(data, false));
-    Console.WriteLine("int2:"); PrintArray(t2.Transform(data, false));
-
-    var dctMat = DCTInt1Transform.CreateMatrix(32);
-    Console.WriteLine("dctMat:"); PrintArray(dctMat);*/
+        WritePng(frameRec, "../../../output/rec_" + frameFile);
+        
+        prevFrame = currFrame;
+    }
 
     Console.WriteLine("Done!");
-}
-
-void PrintArray(int[,] array)
-{
-    for (int row = 0; row < array.GetLength(0); row++)
-    {
-        Console.Write("{");
-        for (int col = 0; col < array.GetLength(1); col++)
-        {
-            Console.Write(array[row, col]);
-            if (col < array.GetLength(1) - 1) 
-                Console.Write(", ");
-        }
-        Console.WriteLine("},");
-    }
 }

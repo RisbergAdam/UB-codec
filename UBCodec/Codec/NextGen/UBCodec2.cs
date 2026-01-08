@@ -60,8 +60,14 @@ public class UBCodec2(CodecConfig config)
         var curr = YCoCgBuffer.FromSize(prev.Width, prev.Height);
 
         var byteStream = new ByteStreamReader(encoded);
-
-        _core.Decode(byteStream, prev, curr);
+        
+        var xBlocks = curr.Width / config.BlockSize;
+        var yBlocks = curr.Height / config.BlockSize;
+        for (var yBlock = 0; yBlock < yBlocks; yBlock++)
+        for (var xBlock = 0; xBlock < xBlocks; xBlock++)
+        {
+            _core.Decode(byteStream, prev, curr);   
+        }
 
         return curr.ToBitmap();
     }

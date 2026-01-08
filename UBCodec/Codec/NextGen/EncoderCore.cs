@@ -71,7 +71,6 @@ class EncoderCore(CodecConfig config)
         ComputeResidual(_YBuffer, _YBufferPrev, 1, blockMotion, output: _workmem1);
         config.DCT.TransformForward(config.BlockSize, _workmem1, output: _workmem2);
         QuantizeCoefficients(config.BlockSize, _workmem2);
-        
         config.Coder.Encode(config.BlockSize, _workmem2, output: byteStream);
         var bytesY = byteStream.Count - streamSize;
         streamSize = byteStream.Count;
@@ -94,10 +93,42 @@ class EncoderCore(CodecConfig config)
 
     public void Decode(ByteStreamReader byteStream, YCoCgBuffer prev, YCoCgBuffer curr)
     {
-        var (rect, blockMotion) = ReadBlockHeader(byteStream);
+        var (region, blockMotion) = ReadBlockHeader(byteStream);
+        LoadBlock(prev, curr, region);
+        
+        // Y-channel
         config.Coder.Decode(config.BlockSize, byteStream, _workmem2);
         QuantizeCoefficients(config.BlockSize, _workmem2, inverse:true);
-        // config.DCT.TransformInverse(config.BlockSize, _workmem2, output: _workmem1);
+        config.DCT.TransformInverse(config.BlockSize, _workmem2, output: _workmem1);
+        ApplyResidual(_YBufferPrev, _YBuffer, 1, blockMotion);
+        
+        // Co-channel
+        config.Coder.Decode(config.BlockSize/2, byteStream, _workmem2);
+        QuantizeCoefficients(config.BlockSize/2, _workmem2, inverse:true);
+        config.DCT.TransformInverse(config.BlockSize/2, _workmem2, output: _workmem1);
+        ApplyResidual(_CoBufferPrev, _CoBuffer, 2, blockMotion);
+        
+        // Cg-channel
+        config.Coder.Decode(config.BlockSize/2, byteStream, _workmem2);
+        QuantizeCoefficients(config.BlockSize/2, _workmem2, inverse:true);
+        config.DCT.TransformInverse(config.BlockSize/2, _workmem2, output: _workmem1);
+        ApplyResidual(_CgBufferPrev, _CgBuffer, 2, blockMotion);
+
+        StoreBlock(curr);
+    }
+
+    private void StoreBlock(YCoCgBuffer target)
+    {
+        for (var y = 0; y < config.BlockSize; y++)
+        for (var x = 0; x < config.BlockSize; x++)
+        {
+            var sx = x + _region.X;
+            var sy = y + _region.Y;
+            
+            target.YBuffer[sx, sy] = _YBuffer[x, y];
+            target.CoBuffer[sx/2, sy/2] = _CoBuffer[x/2, y/2];
+            target.CgBuffer[sx/2, sy/2] = _CgBuffer[x/2, y/2];
+        }
     }
 
     private Action<string> MeasureTime()
@@ -125,8 +156,8 @@ class EncoderCore(CodecConfig config)
     {
         return (
             new Rectangle(
-                reader.ReadUInt8(),
-                reader.ReadUInt8(),
+                reader.ReadUInt8() * config.BlockSize,
+                reader.ReadUInt8() * config.BlockSize,
                 config.BlockSize,
                 config.BlockSize
             ),
@@ -148,7 +179,21 @@ class EncoderCore(CodecConfig config)
         for (var y = 0; y < blockSize; y++)
         for (var x = 0; x < blockSize; x++)
         {
-            output[x, y] = (byte) ((block[x, y] - blockPrev[x + xOffset, y + yOffset]) / 2 + 127);
+            output[x, y] = (byte) Math.Clamp((block[x, y] - blockPrev[x + xOffset, y + yOffset]) / 2 + 127, 0, 255);
+        }
+    }
+
+    private void ApplyResidual(byte[,] blockPrev, byte[,] block, int downsample, MotionEstimate blockMotion)
+    {
+        var blockSize = block.GetLength(0);
+        
+        var xOffset = (blockMotion.X + config.ReferenceBlockPadding) / downsample;
+        var yOffset = (blockMotion.Y + config.ReferenceBlockPadding) / downsample;
+        
+        for (var y = 0; y < blockSize; y++)
+        for (var x = 0; x < blockSize; x++)
+        {
+            block[x, y] = (byte) Math.Clamp(blockPrev[x + xOffset, y + yOffset] + (_workmem1[x, y] - 127)*2, 0, 255);
         }
     }
     
@@ -178,8 +223,14 @@ class EncoderCore(CodecConfig config)
             for (var y = 0; y < 8; y++)
             for (var x = 0; x < 8; x++)
             {
-                if (inverse) workmem[x + 8*xb, y + 8*yb] *= Q[x, y];
-                else workmem[x + 8*xb, y + 8*yb] /= Q[x, y];
+                if (inverse)
+                {
+                    workmem[x + 8*xb, y + 8*yb] *= Q[x, y];
+                }
+                else
+                {
+                    workmem[x + 8*xb, y + 8*yb] /= Q[x, y];
+                }
             }
         }
     }

@@ -85,25 +85,12 @@ public class YCoCgBuffer
         return (Y, Co, Cg);
     }
     
-    public static (int, int, int) ToYCoCgInt(SKColor color)
-    {
-        byte r = color.Red;
-        byte g = color.Green;
-        byte b = color.Blue;
-
-        int Y = (int) ((r >> 2) + (g >> 1) + (b >> 2));
-        int Co = (int) ((r >> 1) - (b >> 1)) + 128;
-        int Cg = (int) ((g >> 1) - (r >> 2) - (b >> 2)) + 128;
-        
-        return (Y, Co, Cg);
-    }
-    
     public static SKColor FromYCoCg((byte, byte, byte) YCoCg)
     {
         var (Y, Co, Cg) = YCoCg;
-        byte r = (byte) (Y + Co - Cg);
-        byte g = (byte) (Y + (Cg - 127));
-        byte b = (byte) Math.Min(Y - Co - Cg + 254, 255);
+        byte r = (byte) Math.Clamp(Y + Co - Cg, 0, 255);
+        byte g = (byte) Math.Clamp(Y + (Cg - 127), 0, 255);
+        byte b = (byte) Math.Clamp(Y - Co - Cg + 254, 0, 255);
         return new SKColor(r, g, b);
     }
 
