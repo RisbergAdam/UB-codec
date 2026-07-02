@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Diagnostics;
 using System.Drawing;
 using SkiaSharp;
@@ -25,11 +24,12 @@ public class UBCodec2(CodecConfig config)
     
     private EncoderCore _core = new(config);
     
-    public byte[] EncodeFrame(SKBitmap prevBitmap, SKBitmap currBitmap)
+    public byte[] EncodeFrame(SKBitmap prevBitmap, SKBitmap currBitmap, int frameSeq)
     {
         var sw = new Stopwatch();
         sw.Start();
         var byteStream = new ByteStreamWriter();
+        byteStream.WriteUInt8((byte)frameSeq);
         
         var prev = YCoCgBuffer.FromBitmap(prevBitmap);
         var curr = YCoCgBuffer.FromBitmap(currBitmap);
@@ -45,7 +45,7 @@ public class UBCodec2(CodecConfig config)
                 config.BlockSize,
                 config.BlockSize);
             _core.LoadBlock(prev, curr, region);
-            _core.Encode(byteStream);
+            _core.Encode(byteStream, frameSeq);
         }
 
         sw.Stop();
@@ -56,19 +56,28 @@ public class UBCodec2(CodecConfig config)
 
     public SKBitmap DecodeFrame(SKBitmap prevBitmap, byte[] encoded)
     {
+        var sw = new Stopwatch();
+        sw.Start();
+        
         var prev = YCoCgBuffer.FromBitmap(prevBitmap);
         var curr = YCoCgBuffer.FromSize(prev.Width, prev.Height);
 
         var byteStream = new ByteStreamReader(encoded);
+        var frameSeq = (int) byteStream.ReadUInt8();
         
         var xBlocks = curr.Width / config.BlockSize;
         var yBlocks = curr.Height / config.BlockSize;
         for (var yBlock = 0; yBlock < yBlocks; yBlock++)
         for (var xBlock = 0; xBlock < xBlocks; xBlock++)
         {
-            _core.Decode(byteStream, prev, curr);   
+            _core.Decode(byteStream, prev, curr, frameSeq);   
         }
 
-        return curr.ToBitmap();
+        var bitmap = curr.ToBitmap();
+        
+        sw.Stop();
+        Console.WriteLine($"Decoded {xBlocks*yBlocks} blocks in {sw.ElapsedMilliseconds}ms");
+        
+        return bitmap;
     }
 }

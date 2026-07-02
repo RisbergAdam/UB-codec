@@ -59,7 +59,7 @@ class EncoderCore(CodecConfig config)
         }
     }
     
-    public void Encode(ByteStreamWriter byteStream)
+    public void Encode(ByteStreamWriter byteStream, int frameSeq)
     {
         var streamSize = byteStream.Count;
         var blockMotion = config.MotionEstimator.EstimateMotion(_YBuffer, _YBufferPrev);
@@ -89,9 +89,16 @@ class EncoderCore(CodecConfig config)
         QuantizeCoefficients(config.BlockSize/2, _workmem2);
         config.Coder.Encode(config.BlockSize/2, _workmem2, output: byteStream);
         var bytesCg = byteStream.Count - streamSize;
+        
+        // Rolling refresh
+        var lumaFrameSeq = frameSeq % (config.BlockSize * config.BlockSize);
+        var chromaFrameSeq = frameSeq % (config.BlockSize * config.BlockSize / 4);
+        byteStream.WriteUInt8(_YBuffer[lumaFrameSeq / 16, lumaFrameSeq % 16]);
+        byteStream.WriteUInt8(_CoBuffer[chromaFrameSeq / 8, frameSeq % 8]);
+        byteStream.WriteUInt8(_CgBuffer[chromaFrameSeq / 8, frameSeq % 8]);
     }
 
-    public void Decode(ByteStreamReader byteStream, YCoCgBuffer prev, YCoCgBuffer curr)
+    public void Decode(ByteStreamReader byteStream, YCoCgBuffer prev, YCoCgBuffer curr, int frameSeq)
     {
         var (region, blockMotion) = ReadBlockHeader(byteStream);
         LoadBlock(prev, curr, region);
@@ -113,6 +120,13 @@ class EncoderCore(CodecConfig config)
         QuantizeCoefficients(config.BlockSize/2, _workmem2, inverse:true);
         config.DCT.TransformInverse(config.BlockSize/2, _workmem2, output: _workmem1);
         ApplyResidual(_CgBufferPrev, _CgBuffer, 2, blockMotion);
+        
+        // Rolling refresh
+        var lumaFrameSeq = frameSeq % (config.BlockSize * config.BlockSize);
+        var chromaFrameSeq = frameSeq % (config.BlockSize * config.BlockSize / 4);
+        _YBuffer[lumaFrameSeq / 16, lumaFrameSeq % 16] = byteStream.ReadUInt8();
+        _CoBuffer[chromaFrameSeq / 8, chromaFrameSeq % 8] = byteStream.ReadUInt8();
+        _CgBuffer[chromaFrameSeq / 8, chromaFrameSeq % 8] = byteStream.ReadUInt8();
 
         StoreBlock(curr);
     }
@@ -146,8 +160,8 @@ class EncoderCore(CodecConfig config)
     private void WriteBlockHeader(ByteStreamWriter stream, MotionEstimate blockMotion)
     {
         stream
-            .WriteUInt8((byte)(_region.X/config.BlockSize))
-            .WriteUInt8((byte)(_region.Y/config.BlockSize))
+            .WriteUInt8((byte)(_region.X / config.BlockSize))
+            .WriteUInt8((byte)(_region.Y / config.BlockSize))
             .WriteUInt8((byte)(blockMotion.X + 127))
             .WriteUInt8((byte)(blockMotion.Y + 127));
     }
