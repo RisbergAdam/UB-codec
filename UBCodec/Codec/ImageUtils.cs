@@ -17,20 +17,22 @@ public static class ImageUtils
         var w = input.Width / blockSize * blockSize;
         var h = input.Height / blockSize * blockSize;
         var output = new SKBitmap(w, h, SKColorType.Rgb888x, SKAlphaType.Opaque);
-        for (var y = 0; y < h; y++)
-        {
-            for (var x = 0; x < w; x++)
-            {
-                output.SetPixel(x, y, input.GetPixel(x, y));
-            }
-        }
+        using var canvas = new SKCanvas(output);
+        canvas.DrawBitmap(input, 0, 0);
 
         return output;
     }
 
     public static SKBitmap ReadPng(string path)
     {
-        using var stream = new SKFileStream(path);
+        using var fileStream = new FileStream(
+            path, 
+            FileMode.Open, 
+            FileAccess.Read, 
+            FileShare.Read, 
+            bufferSize: 4096, 
+            useAsync: false);
+        using var stream = new SKManagedStream(fileStream);
         var codec = SKCodec.Create(stream);
         var bitmap = new SKBitmap(codec.Info);
         codec.GetPixels(bitmap.Info, bitmap.GetPixels());
@@ -39,9 +41,15 @@ public static class ImageUtils
 
     public static void WritePng(SKBitmap input, string path)
     {
-        using var data = input.Encode(SKEncodedImageFormat.Png, 80);
-        using var stream = File.OpenWrite(path);
-        data.SaveTo(stream);
+        using var fileStream = new FileStream(
+            path, 
+            FileMode.Create,
+            FileAccess.Write, 
+            FileShare.None, 
+            bufferSize: 4096,
+            useAsync: false);
+        using var skStream = new SKManagedWStream(fileStream);
+        input.Encode(skStream, SKEncodedImageFormat.Png, 100);
     }
 
     public static SKBitmap Downsample(SKBitmap input)

@@ -63,6 +63,7 @@ class EncoderCore(CodecConfig config)
     {
         var streamSize = byteStream.Count;
         var blockMotion = config.MotionEstimator.EstimateMotion(_YBuffer, _YBufferPrev);
+        // Console.WriteLine($"Block motion: {blockMotion.X} {blockMotion.Y}");
         WriteBlockHeader(byteStream, blockMotion);
         var bytesHeader = byteStream.Count - streamSize;
         streamSize = byteStream.Count;
@@ -89,13 +90,6 @@ class EncoderCore(CodecConfig config)
         QuantizeCoefficients(config.BlockSize/2, _workmem2);
         config.Coder.Encode(config.BlockSize/2, _workmem2, output: byteStream);
         var bytesCg = byteStream.Count - streamSize;
-        
-        // Rolling refresh
-        var lumaFrameSeq = frameSeq % (config.BlockSize * config.BlockSize);
-        var chromaFrameSeq = frameSeq % (config.BlockSize * config.BlockSize / 4);
-        byteStream.WriteUInt8(_YBuffer[lumaFrameSeq / 16, lumaFrameSeq % 16]);
-        byteStream.WriteUInt8(_CoBuffer[chromaFrameSeq / 8, frameSeq % 8]);
-        byteStream.WriteUInt8(_CgBuffer[chromaFrameSeq / 8, frameSeq % 8]);
     }
 
     public void Decode(ByteStreamReader byteStream, YCoCgBuffer prev, YCoCgBuffer curr, int frameSeq)
@@ -120,13 +114,6 @@ class EncoderCore(CodecConfig config)
         QuantizeCoefficients(config.BlockSize/2, _workmem2, inverse:true);
         config.DCT.TransformInverse(config.BlockSize/2, _workmem2, output: _workmem1);
         ApplyResidual(_CgBufferPrev, _CgBuffer, 2, blockMotion);
-        
-        // Rolling refresh
-        var lumaFrameSeq = frameSeq % (config.BlockSize * config.BlockSize);
-        var chromaFrameSeq = frameSeq % (config.BlockSize * config.BlockSize / 4);
-        _YBuffer[lumaFrameSeq / 16, lumaFrameSeq % 16] = byteStream.ReadUInt8();
-        _CoBuffer[chromaFrameSeq / 8, chromaFrameSeq % 8] = byteStream.ReadUInt8();
-        _CgBuffer[chromaFrameSeq / 8, chromaFrameSeq % 8] = byteStream.ReadUInt8();
 
         StoreBlock(curr);
     }
@@ -193,7 +180,10 @@ class EncoderCore(CodecConfig config)
         for (var y = 0; y < blockSize; y++)
         for (var x = 0; x < blockSize; x++)
         {
-            output[x, y] = (byte) Math.Clamp((block[x, y] - blockPrev[x + xOffset, y + yOffset]) / 2 + 127, 0, 255);
+            var currValue =  block[x, y];
+            var prevValue = blockPrev[x + xOffset, y + yOffset];
+            var residual = currValue - (prevValue - (prevValue >> 2));
+            output[x, y] = (byte) Math.Clamp(residual / 2 + 127, 0, 255);
         }
     }
 
@@ -207,7 +197,10 @@ class EncoderCore(CodecConfig config)
         for (var y = 0; y < blockSize; y++)
         for (var x = 0; x < blockSize; x++)
         {
-            block[x, y] = (byte) Math.Clamp(blockPrev[x + xOffset, y + yOffset] + (_workmem1[x, y] - 127)*2, 0, 255);
+            var prevValue = blockPrev[x + xOffset, y + yOffset];
+            var residual = (_workmem1[x, y] - 127) * 2;
+            var currValue = residual + (prevValue - (prevValue >> 2));
+            block[x, y] = (byte) Math.Clamp(currValue, 0, 255);
         }
     }
     
@@ -227,7 +220,7 @@ class EncoderCore(CodecConfig config)
     
         for (var y = 0; y < 8; y++)
         for (var x = 0; x < 8; x++)
-            Q[x, y] /= 2;
+            Q[x, y] /= 1;
         
         var subBlocks = blockSize / 8;
         

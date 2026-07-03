@@ -26,8 +26,6 @@ public class UBCodec2(CodecConfig config)
     
     public byte[] EncodeFrame(SKBitmap prevBitmap, SKBitmap currBitmap, int frameSeq)
     {
-        var sw = new Stopwatch();
-        sw.Start();
         var byteStream = new ByteStreamWriter();
         byteStream.WriteUInt8((byte)frameSeq);
         
@@ -47,18 +45,14 @@ public class UBCodec2(CodecConfig config)
             _core.LoadBlock(prev, curr, region);
             _core.Encode(byteStream, frameSeq);
         }
-
-        sw.Stop();
+        
         var bytes = byteStream.GetArray();
-        Console.WriteLine($"Encoded {xBlocks*yBlocks} blocks in {sw.ElapsedMilliseconds}ms into {bytes.Length / 1024} kb");
+        Console.WriteLine($"Encoded {xBlocks*yBlocks} blocks into {bytes.Length / 1024} kb");
         return bytes;
     }
 
     public SKBitmap DecodeFrame(SKBitmap prevBitmap, byte[] encoded)
     {
-        var sw = new Stopwatch();
-        sw.Start();
-        
         var prev = YCoCgBuffer.FromBitmap(prevBitmap);
         var curr = YCoCgBuffer.FromSize(prev.Width, prev.Height);
 
@@ -74,10 +68,6 @@ public class UBCodec2(CodecConfig config)
         }
 
         var bitmap = curr.ToBitmap();
-        
-        sw.Stop();
-        Console.WriteLine($"Decoded {xBlocks*yBlocks} blocks in {sw.ElapsedMilliseconds}ms");
-        
         return bitmap;
     }
 }
