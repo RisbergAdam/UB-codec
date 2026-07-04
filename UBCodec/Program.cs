@@ -1,9 +1,5 @@
-﻿using System.Diagnostics;
-using SkiaSharp;
-using UBCodec.Codec;
-using UBCodec.Codec.NextGen;
+﻿using UBCodec.Codec.NextGen;
 using static UBCodec.Codec.ImageUtils;
-using GolombRiceCoder = UBCodec.Codec.GolombRiceCoder;
 
 Main(); return;
 
@@ -14,9 +10,8 @@ void Main()
         BlockSize = 16,
         ReferenceBlockPadding = 4,
         MotionEstimator = new NoopMotionEstimator(),
-        // MotionEstimator = new BlockMotionEstimatorReference(),
-        DCT = new DCTInt1Transform(),
-        Coder = new UBCodec.Codec.NextGen.GolombRiceCoder()
+        DCT = new DctInt1Transform(),
+        Coder = new GolombRiceCoder()
         {
             GolombM = 32
         },
@@ -30,7 +25,7 @@ void Main()
     
     var accFrame = BlockResize(ReadPng(GetFramePath(1)), codec2.Config.BlockSize);
 
-    for (var i = 2; i < 100; i++)
+    for (var i = 2; i < 300; i++)
     {
         TimeExec("iteration", () =>
         {

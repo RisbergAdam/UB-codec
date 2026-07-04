@@ -27,7 +27,7 @@ public class UBCodec2(CodecConfig config)
     public byte[] EncodeFrame(SKBitmap prevBitmap, SKBitmap currBitmap, int frameSeq)
     {
         var byteStream = new ByteStreamWriter();
-        byteStream.WriteUInt8((byte)frameSeq);
+        byteStream.WriteUInt16((ushort) frameSeq);
         
         var prev = YCoCgBuffer.FromBitmap(prevBitmap);
         var curr = YCoCgBuffer.FromBitmap(currBitmap);
@@ -57,7 +57,7 @@ public class UBCodec2(CodecConfig config)
         var curr = YCoCgBuffer.FromSize(prev.Width, prev.Height);
 
         var byteStream = new ByteStreamReader(encoded);
-        var frameSeq = (int) byteStream.ReadUInt8();
+        var frameSeq = (int) byteStream.ReadUInt16();
         
         var xBlocks = curr.Width / config.BlockSize;
         var yBlocks = curr.Height / config.BlockSize;

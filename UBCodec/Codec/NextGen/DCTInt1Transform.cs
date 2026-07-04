@@ -1,6 +1,6 @@
 namespace UBCodec.Codec.NextGen;
 
-public class DCTInt1Transform : ITransform
+public class DctInt1Transform : ITransform
 {
     private static int[,] M_32 =
     {
@@ -26,15 +26,15 @@ public class DCTInt1Transform : ITransform
         { 292, -405, 382, -343, 292, -229, 158, -81 },
     };
 
-    private int[,] M = M_826;
+    private int[,] M = M_32;
     
     private int[,] MT = new int[8, 8];
 
-    private int QFactor = 826;
+    private int QFactor = 32;
     
     private int[,] _workmem = new int[8, 8];
 
-    public DCTInt1Transform()
+    public DctInt1Transform()
     {
         for (var y = 0; y < 8; y++)
         for (var x = 0; x < 8; x++)

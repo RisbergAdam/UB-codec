@@ -30,7 +30,7 @@ public class DCTInt1TransformTest
         var output = new int[16, 16];
         var dataInverse = new byte[16, 16]; 
 
-        var transform = new DCTInt1Transform();
+        var transform = new DctInt1Transform();
         transform.TransformForward(16, data1, output);
         transform.TransformInverse(16, output, dataInverse);
     }
