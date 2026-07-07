@@ -33,4 +33,12 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
-RiskyCodec/resources/
+UBCodec/img_out/
+
+# Build artifacts and temporary outputs
+artifacts/
+temp_output/
+*.mp4
+*.h264
+*.hevc
+*.yuv
