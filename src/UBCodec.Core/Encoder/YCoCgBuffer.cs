@@ -4,15 +4,15 @@ namespace UBCodec.Core.Encoder;
 
 public class YCoCgBuffer
 {
-    private const int D = 2; // chroma downsample count
-    
     public byte[,] YBuffer;
     public byte[,] CoBuffer;
     public byte[,] CgBuffer;
 
     public int Width, Height;
 
-    public static YCoCgBuffer FromSize(int width, int height)
+    public int ChromaDownsample = 2;
+
+    public static YCoCgBuffer FromSize(int width, int height, int D)
     {
         var chromaWidth = width / D;
         var chromaHeight = height / D;
@@ -23,11 +23,12 @@ public class YCoCgBuffer
             CgBuffer = new byte[chromaWidth, chromaHeight],
             Width = width,
             Height = height,
+            ChromaDownsample = D,
         };
         return buffer;
     }
 
-    public static YCoCgBuffer FromBitmap(SKBitmap bitmap)
+    public static YCoCgBuffer FromBitmap(SKBitmap bitmap, int D)
     {
         var width = bitmap.Width;
         var height = bitmap.Height;
@@ -40,6 +41,7 @@ public class YCoCgBuffer
             CgBuffer = new byte[chromaWidth, chromaHeight],
             Width = width,
             Height = height,
+            ChromaDownsample = D,
         };
 
         var bytesPerPixel = bitmap.BytesPerPixel;
@@ -95,8 +97,8 @@ public class YCoCgBuffer
                 for (var x = 0; x < Width; x++)
                 {
                     byte Y = YBuffer[x, y];
-                    byte Co = CoBuffer[x / D, y / D];
-                    byte Cg = CgBuffer[x / D, y / D];
+                    byte Co = CoBuffer[x / ChromaDownsample, y / ChromaDownsample];
+                    byte Cg = CgBuffer[x / ChromaDownsample, y / ChromaDownsample];
 
                     var (r, g, b) = FromYCoCg(Y, Co, Cg);
 
@@ -136,15 +138,15 @@ public class YCoCgBuffer
     
     public byte GetCo(int x, int y)
     {
-        x = Math.Clamp(x, 0, Width/D-1);
-        y = Math.Clamp(y, 0, Height/D-1);
+        x = Math.Clamp(x, 0, Width/ChromaDownsample-1);
+        y = Math.Clamp(y, 0, Height/ChromaDownsample-1);
         return CoBuffer[x, y];
     }
     
     public byte GetCg(int x, int y)
     {
-        x = Math.Clamp(x, 0, Width/D-1);
-        y = Math.Clamp(y, 0, Height/D-1);
+        x = Math.Clamp(x, 0, Width/ChromaDownsample-1);
+        y = Math.Clamp(y, 0, Height/ChromaDownsample-1);
         return CgBuffer[x, y];
     }
 }

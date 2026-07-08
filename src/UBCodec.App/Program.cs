@@ -27,7 +27,7 @@ void Main()
     }
     
     var accFrame = BlockResize(ReadPng(GetFramePath(1)), config.BlockSize);
-    var accBuffer = YCoCgBuffer.FromBitmap(accFrame);
+    var accBuffer = YCoCgBuffer.FromBitmap(accFrame, 2);
 
     for (var i = 2; i < 2; i++)
     {
@@ -39,9 +39,9 @@ void Main()
                 return BlockResize(ReadPng(GetFramePath(i)), config.BlockSize);
             });
 
-            var currBuffer = YCoCgBuffer.FromBitmap(currFrame);
+            var currBuffer = YCoCgBuffer.FromBitmap(currFrame, 2);
             var encoded = TimeExec("encode", () => encoder.EncodeFrame(accBuffer, currBuffer, i));
-            var frameRecBuffer = YCoCgBuffer.FromSize(currBuffer.Width, currBuffer.Height);
+            var frameRecBuffer = YCoCgBuffer.FromSize(currBuffer.Width, currBuffer.Height, 2);
             TimeExec("decode", () =>
             {
                 encoder.DecodeFrame(accBuffer, frameRecBuffer, encoded);

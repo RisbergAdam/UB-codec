@@ -11,6 +11,6 @@ public class YCoCgBufferTest
     public void ConversionTest()
     {
         var image = BlockResize(ReadPng("../../../../resources/ezgif-6-e3be30c4ce-png-split/ezgif-frame-001.png"), 16);
-        WritePng(YCoCgBuffer.FromBitmap(image).ToBitmap(), "../../../artifacts/conversion-test.png");
+        WritePng(YCoCgBuffer.FromBitmap(image, 2).ToBitmap(), "../../../artifacts/conversion-test.png");
     }
 }
