@@ -1,4 +1,5 @@
 using CliWrap;
+using System.Runtime.InteropServices;
 using UBCodec.Core.Encoder;
 using static UBCodec.Core.Utils.ImageUtils;
 
@@ -80,22 +81,28 @@ public class SoftwareEncoderIntegrationTest
 {
     private static string _root = Path.GetFullPath("../../../../..");
 
-    private static string _artifacts = Path.Join(_root, "/artifacts/integration_test");
+    private static string _artifacts = Path.Join(_root, "artifacts", "integration_test");
+
+    private static string ffmpeg =>
+        RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? Path.Join(_root, "ffmpeg.exe")
+            : "ffmpeg";
 
     [SetUp]
-    public void SetUp() => Directory.CreateDirectory(_artifacts);
-
-    [TearDown]
-    public void TearDown()
+    public void SetUp()
     {
-        if (!Directory.Exists(_artifacts)) return;
-        Directory.Delete(_artifacts, true);
+        if (Directory.Exists(_artifacts))
+        {
+            Directory.Delete(_artifacts, true);
+        }
+        
+        Directory.CreateDirectory(_artifacts);
     }
 
     [Test]
     public async Task SingleFrameTest()
     {
-        var frameFiles = await SplitVideo(Path.Join(_root, "/resources/cars.mp4"), 4);
+        var frameFiles = await SplitVideo(Path.Join(_root, "resources", "city.mp4"), 4);
         
         var config = new CodecConfig
         {
@@ -104,7 +111,6 @@ public class SoftwareEncoderIntegrationTest
             Quality = 4,
             ReferenceBlockPadding = 0,
             MotionEstimator = new NoopMotionEstimator(),
-            // MotionEstimator = new BlockMotionEstimatorReference(),
             DCT = new DctInt1Transform(),
             Coder = new GolombRiceCoder
             {
@@ -125,7 +131,8 @@ public class SoftwareEncoderIntegrationTest
         var inputSize = frame1.Width * frame1.Height * 3.0;
         var outputSize = bytes.Length * 1.0;
         
-        WritePng(decoded.ToBitmap(), Path.Join(_root, $"output.png"));
+        WritePng(frame2.ToBitmap(), Path.Join(_root, $"output_expect.png"));
+        WritePng(decoded.ToBitmap(), Path.Join(_root, $"output_actual.png"));
         
         TestContext.Out.WriteLine($"Compression ratio: {Math.Round(outputSize/inputSize*100.0)}%");
     }
@@ -133,7 +140,7 @@ public class SoftwareEncoderIntegrationTest
     [Test]
     public async Task VideoTest()
     {
-        var frameFiles = await SplitVideo(Path.Join(_root, "/resources/cars.mp4"), 300);
+        var frameFiles = await SplitVideo(Path.Join(_root, "resources", "city.mp4"), 30, scaleDiv:2);
         
         var config = new CodecConfig
         {
@@ -163,7 +170,7 @@ public class SoftwareEncoderIntegrationTest
             WritePng(frameOut.ToBitmap(), Path.Join(_artifacts, $"rec_{i + 1:D4}.png"));
         }
         
-        await StitchVideo(Path.Join(_root, $"output_{DateTime.Now}.mp4"));
+        await StitchVideo(Path.Join(_root, $"output_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.mp4"));
         
         var uncompressedSize = encoder.BufferSize().Item1 * encoder.BufferSize().Item2 * 3;
         var averageFrameSize = totalBytes / frameFiles.Length;
@@ -173,10 +180,11 @@ public class SoftwareEncoderIntegrationTest
         Console.WriteLine($"- Average compression:  {Math.Round(averageFrameSize*100.0/uncompressedSize)}%");
     }
     
-    async Task<string[]> SplitVideo(string inputVideo, int maxFrames) {
-        await Cli.Wrap("ffmpeg")
+    async Task<string[]> SplitVideo(string inputVideo, int maxFrames, double scaleDiv = 1) {
+        var vf = $"fps=30,scale=iw/{scaleDiv}:ih/{scaleDiv}";
+        await Cli.Wrap(ffmpeg)
             .WithArguments([
-                "-y", "-i", inputVideo, "-vf", $"fps=30", "-vframes", $"{maxFrames}",
+                "-y", "-i", inputVideo, "-vf", vf, "-vframes", $"{maxFrames}",
                 Path.Join(_artifacts, "frame_%04d.png")
             ])
             .WithValidation(CommandResultValidation.ZeroExitCode)
@@ -190,7 +198,7 @@ public class SoftwareEncoderIntegrationTest
 
     async Task StitchVideo(string outputVideo)
     {
-        await Cli.Wrap("ffmpeg")
+        await Cli.Wrap(ffmpeg)
             .WithArguments(["-y", "-framerate", "30", "-i", Path.Join(_artifacts, "rec_%04d.png"), "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p", outputVideo])
             .WithValidation(CommandResultValidation.ZeroExitCode)
             .ExecuteAsync();

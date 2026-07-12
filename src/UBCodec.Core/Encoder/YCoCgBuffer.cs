@@ -64,18 +64,39 @@ public class YCoCgBuffer
         unsafe
         {
             var basePtr = (byte*)bitmap.GetPixels().ToPointer();
+
+            // Luma: full resolution
             for (var y = 0; y < height; y++)
             {
                 var row = basePtr + y * rowBytes;
                 for (var x = 0; x < width; x++)
                 {
                     var px = row + x * bytesPerPixel;
-                    var (Y, Co, Cg) = ToYCoCg(px[rOff], px[gOff], px[bOff]);
-
+                    var (Y, _, _) = ToYCoCg(px[rOff], px[gOff], px[bOff]);
                     buffer.YBuffer[x, y] = Y;
-                    buffer.CoBuffer[x / D, y / D] += (byte)(Co / D / D);
-                    buffer.CgBuffer[x / D, y / D] += (byte)(Cg / D / D);
                 }
+            }
+
+            // Chroma: subsampled, average each D×D group
+            var div = D * D;
+            var half = div / 2;
+            for (var cy = 0; cy < chromaHeight; cy++)
+            for (var cx = 0; cx < chromaWidth; cx++)
+            {
+                var coSum = 0;
+                var cgSum = 0;
+                for (var dy = 0; dy < D; dy++)
+                for (var dx = 0; dx < D; dx++)
+                {
+                    var x = cx * D + dx;
+                    var y = cy * D + dy;
+                    var px = basePtr + y * rowBytes + x * bytesPerPixel;
+                    var (_, Co, Cg) = ToYCoCg(px[rOff], px[gOff], px[bOff]);
+                    coSum += Co;
+                    cgSum += Cg;
+                }
+                buffer.CoBuffer[cx, cy] = (byte)((coSum + half) / div);
+                buffer.CgBuffer[cx, cy] = (byte)((cgSum + half) / div);
             }
         }
 

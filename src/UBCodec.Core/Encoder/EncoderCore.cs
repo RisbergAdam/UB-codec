@@ -36,11 +36,13 @@ public class EncoderCore(CodecConfig config)
     private Rectangle _region;
 
     private int _rows = 0;
+    private int _cols = 0;
 
     public void LoadBlock(YCoCgBuffer prev, YCoCgBuffer curr, Rectangle region)
     {
         _region = region;
         _rows = curr.Height / _region.Height;
+        _cols = curr.Width / _region.Width;
 
         var searchWindowSize = config.BlockSize + config.ReferenceBlockPadding * 2;
         var blockSize = config.BlockSize;
@@ -56,14 +58,23 @@ public class EncoderCore(CodecConfig config)
         _workmem1 =  new byte[blockSize, blockSize];
         _workmem2 =  new int[blockSize, blockSize];
         
+        var D = config.UVDownsample;
+
         for (var y = 0; y < blockSize; y++)
         for (var x = 0; x < blockSize; x++)
         {
             var sx = region.X + x;
             var sy = region.Y + y;
             _YBuffer[x, y] = curr.GetY(sx, sy);
-            _CoBuffer[x/config.UVDownsample, y/config.UVDownsample] = curr.GetCo(sx/config.UVDownsample, sy/config.UVDownsample);
-            _CgBuffer[x/config.UVDownsample, y/config.UVDownsample] = curr.GetCg(sx/config.UVDownsample, sy/config.UVDownsample);
+        }
+
+        for (var y = 0; y < blockSize / D; y++)
+        for (var x = 0; x < blockSize / D; x++)
+        {
+            var sx = region.X / D + x;
+            var sy = region.Y / D + y;
+            _CoBuffer[x, y] = curr.GetCo(sx, sy);
+            _CgBuffer[x, y] = curr.GetCg(sx, sy);
         }
         
         for (var y = 0; y < searchWindowSize; y++)
@@ -72,17 +83,24 @@ public class EncoderCore(CodecConfig config)
             var sx = region.X - config.ReferenceBlockPadding + x;
             var sy = region.Y - config.ReferenceBlockPadding + y;
             _YBufferPrev[x, y] = prev.GetY(sx, sy);
-            _CoBufferPrev[x/config.UVDownsample, y/config.UVDownsample] = prev.GetCo(sx/config.UVDownsample, sy/config.UVDownsample);
-            _CgBufferPrev[x/config.UVDownsample, y/config.UVDownsample] = prev.GetCg(sx/config.UVDownsample, sy/config.UVDownsample);
+        }
+
+        for (var y = 0; y < searchWindowSize / D; y++)
+        for (var x = 0; x < searchWindowSize / D; x++)
+        {
+            var sx = (region.X - config.ReferenceBlockPadding) / D + x;
+            var sy = (region.Y - config.ReferenceBlockPadding) / D + y;
+            _CoBufferPrev[x, y] = prev.GetCo(sx, sy);
+            _CgBufferPrev[x, y] = prev.GetCg(sx, sy);
         }
     }
 
     private bool IsIntraRefresh(int frameSeq)
     {
-        int rowStep = 1;
-        var currRow = (_region.Y / _region.Height) / rowStep;
-        var numGroups = (_rows + rowStep - 1) / rowStep;
-        return currRow == (frameSeq % numGroups);
+        int colStep = 1;
+        var currCol = (_region.X / _region.Width) / colStep;
+        var numGroups = (_cols + colStep - 1) / colStep;
+        return currCol == (frameSeq % numGroups);
     }
     
     public void Encode(ByteStreamWriter byteStream, int frameSeq)
@@ -148,15 +166,23 @@ public class EncoderCore(CodecConfig config)
 
     private void StoreBlock(YCoCgBuffer target)
     {
+        var D = config.UVDownsample;
+
         for (var y = 0; y < config.BlockSize; y++)
         for (var x = 0; x < config.BlockSize; x++)
         {
             var sx = x + _region.X;
             var sy = y + _region.Y;
-            
             target.YBuffer[sx, sy] = _YBuffer[x, y];
-            target.CoBuffer[sx/config.UVDownsample, sy/config.UVDownsample] = _CoBuffer[x/config.UVDownsample, y/config.UVDownsample];
-            target.CgBuffer[sx/config.UVDownsample, sy/config.UVDownsample] = _CgBuffer[x/config.UVDownsample, y/config.UVDownsample];
+        }
+
+        for (var y = 0; y < config.BlockSize / D; y++)
+        for (var x = 0; x < config.BlockSize / D; x++)
+        {
+            var sx = x + _region.X / D;
+            var sy = y + _region.Y / D;
+            target.CoBuffer[sx, sy] = _CoBuffer[x, y];
+            target.CgBuffer[sx, sy] = _CgBuffer[x, y];
         }
     }
 
@@ -196,14 +222,14 @@ public class EncoderCore(CodecConfig config)
         {
             if (intraRefresh)
             {
-                output[x, y] = (byte) Math.Clamp(block[x, y] + 1, 0, 255);
+                output[x, y] = (byte) block[x, y];
             }
             else
             {
                 var currValue =  block[x, y];
                 var prevValue = blockPrev[x + xOffset, y + yOffset];
                 var residual = currValue - (prevValue - (prevValue >> 2));
-                output[x, y] = (byte) Math.Clamp(residual / 2 + 127, 0, 255);
+                output[x, y] = (byte) Math.Clamp(residual + 127, 0, 255);
             }
         }
     }
@@ -225,7 +251,7 @@ public class EncoderCore(CodecConfig config)
             else
             {
                 var prevValue = blockPrev[x + xOffset, y + yOffset];
-                var residual = (_workmem1[x, y] - 127) * 2;
+                var residual = _workmem1[x, y] - 127;
                 var currValue = residual + (prevValue - (prevValue >> 2));
                 block[x, y] = (byte) Math.Clamp(currValue, 0, 255);
             }
