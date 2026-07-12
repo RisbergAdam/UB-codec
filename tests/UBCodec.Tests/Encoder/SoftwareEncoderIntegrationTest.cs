@@ -61,7 +61,7 @@ class DecoderSide(CodecConfig config)
         _prev ??= YCoCgBuffer.FromSize(width, height, _encoder.Config.UVDownsample);
         _frameDecoded ??= YCoCgBuffer.FromSize(width, height, _encoder.Config.UVDownsample);
 
-        if (frameSeq % 5 == 0)
+        if (frameSeq % 5 == 1)
         {
             // Simulate frame drop
         }
@@ -106,9 +106,9 @@ public class SoftwareEncoderIntegrationTest
         
         var config = new CodecConfig
         {
-            UVDownsample = 4,
-            BlockSize = 32,
-            Quality = 4,
+            UVDownsample = 2,
+            BlockSize = 64,
+            Quality = 2,
             ReferenceBlockPadding = 0,
             MotionEstimator = new NoopMotionEstimator(),
             DCT = new DctInt1Transform(),
@@ -140,12 +140,12 @@ public class SoftwareEncoderIntegrationTest
     [Test]
     public async Task VideoTest()
     {
-        var frameFiles = await SplitVideo(Path.Join(_root, "resources", "city.mp4"), 30, scaleDiv:2);
+        var frameFiles = await SplitVideo(Path.Join(_root, "resources", "cars.mp4"), 30, scaleDiv:2);
         
         var config = new CodecConfig
         {
-            UVDownsample = 4,
-            Quality = 1,
+            UVDownsample = 2,
+            Quality = 2,
             BlockSize = 64,
             ReferenceBlockPadding = 0,
             MotionEstimator = new NoopMotionEstimator(),
@@ -177,7 +177,7 @@ public class SoftwareEncoderIntegrationTest
         
         Console.WriteLine($"- Video stream total size: {totalBytes/1024} kb");
         Console.WriteLine($"- Average frame size: {averageFrameSize/1024} kb");
-        Console.WriteLine($"- Average compression:  {Math.Round(averageFrameSize*100.0/uncompressedSize)}%");
+        Console.WriteLine($"- Average compression:  {Math.Round(averageFrameSize*10000.0/uncompressedSize)/100.0}%");
     }
     
     async Task<string[]> SplitVideo(string inputVideo, int maxFrames, double scaleDiv = 1) {

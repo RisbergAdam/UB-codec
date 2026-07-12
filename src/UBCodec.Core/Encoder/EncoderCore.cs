@@ -38,6 +38,30 @@ public class EncoderCore(CodecConfig config)
     private int _rows = 0;
     private int _cols = 0;
 
+    int[,] QIntra =
+    {
+        { 16, 11, 10, 16, 24, 40, 51, 61 },
+        { 12, 12, 14, 19, 26, 58, 60, 55 },
+        { 14, 13, 16, 24, 40, 57, 69, 56 },
+        { 14, 17, 22, 29, 51, 87, 80, 62 },
+        { 18, 22, 37, 56, 68, 109, 103, 77 },
+        { 24, 35, 55, 64, 81, 104, 113, 92 },
+        { 49, 64, 78, 87, 103, 121, 120, 101 },
+        { 72, 92, 95, 98, 112, 100, 103, 99 },
+    };
+
+    int[,] QInter =
+    {
+        { 16, 16, 16, 16, 24, 40, 51, 61 },
+        { 16, 16, 16, 19, 26, 40, 51, 55 },
+        { 16, 16, 16, 24, 40, 51, 51, 56 },
+        { 16, 19, 22, 29, 40, 51, 56, 56 },
+        { 24, 26, 37, 40, 51, 56, 56, 56 },
+        { 40, 40, 40, 40, 56, 56, 56, 56 },
+        { 51, 51, 51, 56, 56, 56, 56, 56 },
+        { 61, 55, 56, 56, 56, 56, 56, 56 },
+    };
+    
     public void LoadBlock(YCoCgBuffer prev, YCoCgBuffer curr, Rectangle region)
     {
         _region = region;
@@ -115,7 +139,7 @@ public class EncoderCore(CodecConfig config)
         // Y-channel
         ComputeResidual(_YBuffer, _YBufferPrev, 1, blockMotion, output: _workmem1, intraRefresh);
         config.DCT.TransformForward(config.BlockSize, _workmem1, output: _workmem2);
-        QuantizeCoefficients(config.BlockSize, _workmem2);
+        QuantizeCoefficients(config.BlockSize, _workmem2, intraRefresh, false);
         byteStream.SetRegion("BLOCK_DATA_Y");
         config.Coder.Encode(config.BlockSize, _workmem2, output: byteStream);
         
@@ -123,7 +147,7 @@ public class EncoderCore(CodecConfig config)
         // Co-channel
         ComputeResidual(_CoBuffer, _CoBufferPrev, config.UVDownsample, blockMotion, output: _workmem1, intraRefresh);
         config.DCT.TransformForward(config.BlockSize/config.UVDownsample, _workmem1, output: _workmem2);
-        QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2);
+        QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true);
         byteStream.SetRegion("BLOCK_DATA_CO");
         config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: byteStream);
         
@@ -131,7 +155,7 @@ public class EncoderCore(CodecConfig config)
         // Cg-channel
         ComputeResidual(_CgBuffer, _CgBufferPrev, config.UVDownsample, blockMotion, output: _workmem1, intraRefresh);
         config.DCT.TransformForward(config.BlockSize/config.UVDownsample, _workmem1, output: _workmem2);
-        QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2);
+        QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true);
         byteStream.SetRegion("BLOCK_DATA_CG");
         config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: byteStream);
         
@@ -145,19 +169,19 @@ public class EncoderCore(CodecConfig config)
         
         // Y-channel
         config.Coder.Decode(config.BlockSize, byteStream, _workmem2);
-        QuantizeCoefficients(config.BlockSize, _workmem2, inverse:true);
+        QuantizeCoefficients(config.BlockSize, _workmem2, intraRefresh, false, inverse:true);
         config.DCT.TransformInverse(config.BlockSize, _workmem2, output: _workmem1);
         ApplyResidual(_YBufferPrev, _YBuffer, 1, blockMotion, intraRefresh);
         
         // Co-channel
         config.Coder.Decode(config.BlockSize/config.UVDownsample, byteStream, _workmem2);
-        QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, inverse:true);
+        QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true, inverse:true);
         config.DCT.TransformInverse(config.BlockSize/config.UVDownsample, _workmem2, output: _workmem1);
         ApplyResidual(_CoBufferPrev, _CoBuffer, config.UVDownsample, blockMotion, intraRefresh);
         
         // Cg-channel
         config.Coder.Decode(config.BlockSize/config.UVDownsample, byteStream, _workmem2);
-        QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, inverse:true);
+        QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true, inverse:true);
         config.DCT.TransformInverse(config.BlockSize/config.UVDownsample, _workmem2, output: _workmem1);
         ApplyResidual(_CgBufferPrev, _CgBuffer, config.UVDownsample, blockMotion, intraRefresh);
 
@@ -258,23 +282,12 @@ public class EncoderCore(CodecConfig config)
         }
     }
     
-    private void QuantizeCoefficients(int blockSize, int[,] workmem, bool inverse = false)
+    private void QuantizeCoefficients(int blockSize, int[,] workmem, bool intraRefresh, bool isChroma, bool inverse = false)
     {
-        int[,] Q =
-        {
-            { 16, 11, 10, 16, 24, 40, 51, 61 },
-            { 12, 12, 14, 19, 26, 58, 60, 55 },
-            { 14, 13, 16, 24, 40, 57, 69, 56 },
-            { 14, 17, 22, 29, 51, 87, 80, 62 },
-            { 18, 22, 37, 56, 68, 109, 103, 77 },
-            { 24, 35, 55, 64, 81, 104, 113, 92 },
-            { 49, 64, 78, 87, 103, 121, 120, 101 },
-            { 72, 92, 95, 98, 112, 100, 103, 99 },
-        };
-    
-        for (var y = 0; y < 8; y++)
-        for (var x = 0; x < 8; x++)
-            Q[x, y] = Math.Max(1, Q[x, y] * 2 / config.Quality);
+        var Q = intraRefresh ? QIntra : QInter;
+        var multiplier = intraRefresh
+            ? isChroma ? 6 : 2
+            : 7; 
         
         var subBlocks = blockSize / 8;
         
@@ -284,13 +297,15 @@ public class EncoderCore(CodecConfig config)
             for (var y = 0; y < 8; y++)
             for (var x = 0; x < 8; x++)
             {
+                int q = Math.Max(1, Q[x, y] * multiplier / config.Quality);
+                
                 if (inverse)
                 {
-                    workmem[x + 8*xb, y + 8*yb] *= Q[x, y];
+                    workmem[x + 8*xb, y + 8*yb] *= q;
                 }
                 else
                 {
-                    workmem[x + 8*xb, y + 8*yb] /= Q[x, y];
+                    workmem[x + 8*xb, y + 8*yb] /= q;
                 }
             }
         }
