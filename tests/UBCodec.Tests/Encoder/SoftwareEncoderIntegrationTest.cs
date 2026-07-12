@@ -61,7 +61,7 @@ class DecoderSide(CodecConfig config)
         _prev ??= YCoCgBuffer.FromSize(width, height, _encoder.Config.UVDownsample);
         _frameDecoded ??= YCoCgBuffer.FromSize(width, height, _encoder.Config.UVDownsample);
 
-        if (frameSeq % 5 == 1)
+        if (frameSeq % 5 == -1)
         {
             // Simulate frame drop
         }
@@ -146,14 +146,15 @@ public class SoftwareEncoderIntegrationTest
         {
             UVDownsample = 2,
             Quality = 2,
-            BlockSize = 64,
+            BlockSize = 32,
             ReferenceBlockPadding = 0,
             MotionEstimator = new NoopMotionEstimator(),
             DCT = new DctInt1Transform(),
+            // Coder = new GolombRiceCoderOrig
             Coder = new GolombRiceCoder
             {
                 ZigZag = true,
-                GolombM = 16
+                GolombM = 32
             },
         };
 

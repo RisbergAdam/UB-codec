@@ -1,9 +1,9 @@
-using System.Collections;
+﻿using System.Collections;
 using UBCodec.Core.Utils;
 
 namespace UBCodec.Core.Encoder;
 
-public class GolombRiceCoder : ICoder
+public class GolombRiceCoderOrig : ICoder
 {
     public bool RLE { get; set; } = true;
     public int RLEMax { get; set; } = 65536;
@@ -23,6 +23,18 @@ public class GolombRiceCoder : ICoder
         { 35, 36, 48, 49, 57, 58, 62, 63 },
     };
 
+    static readonly int[,] InvZigZagIx =
+    {
+        { 0, 10, 33, 27, 28, 43, 23, 46 },
+        { 8, 3, 26, 34, 21, 50, 31, 39 },
+        { 1, 4, 19, 41, 14, 57, 38, 47 },
+        { 2, 11, 12, 48, 7, 58, 45, 54 },
+        { 9, 18, 5, 56, 15, 51, 52, 61 },
+        { 16, 25, 6, 49, 22, 44, 59, 62 },
+        { 24, 32, 13, 42, 29, 37, 60, 55 },
+        { 17, 40, 20, 35, 36, 30, 53, 63 },
+    };
+
     public void Encode(int blockSize, int[,] input, ByteStreamWriter output)
     {
         var flat = new int[blockSize * blockSize];
@@ -32,13 +44,13 @@ public class GolombRiceCoder : ICoder
 
         if (ZigZag) flat = ZigZagReorder(flat, blockSize);
 
-        var encoded = _GolombRiceEncode(_RLEEncode(flat, blockSize));
+        var encoded = _GolombRiceEncode(_RLEEncode(flat));
         output.WriteBitArray(encoded.GetArray());
     }
 
     public void Decode(int blockSize, ByteStreamReader input, int[,] output)
     {
-        var flat = _RLEDecode(_GolombRiceDecode(input.ReadBitArray()), blockSize);
+        var flat = _RLEDecode(_GolombRiceDecode(input.ReadBitArray()));
 
         if (ZigZag) flat = InverseZigZagReorder(flat, blockSize);
 
@@ -47,38 +59,20 @@ public class GolombRiceCoder : ICoder
             output[x, y] = flat[y * blockSize + x];
     }
 
-    static int[] ZigZagReorder(int[] input, int blockSize)
-    {
-        var output = new int[input.Length];
-        var subBlocks = blockSize / 8;
-        for (var yb = 0; yb < subBlocks; yb++)
-        for (var xb = 0; xb < subBlocks; xb++)
-        {
-            var outBase = (yb * subBlocks + xb) * 64;
-            for (var sy = 0; sy < 8; sy++)
-            for (var sx = 0; sx < 8; sx++)
-            {
-                var inPos = (yb * 8 + sy) * blockSize + (xb * 8 + sx);
-                output[outBase + ZigZagIx[sx, sy]] = input[inPos];
-            }
-        }
-        return output;
-    }
+    static int[] ZigZagReorder(int[] input, int blockSize) => _Reorder(input, blockSize, ZigZagIx);
+    static int[] InverseZigZagReorder(int[] input, int blockSize) => _Reorder(input, blockSize, InvZigZagIx);
 
-    static int[] InverseZigZagReorder(int[] input, int blockSize)
+    static int[] _Reorder(int[] input, int blockSize, int[,] table)
     {
         var output = new int[input.Length];
         var subBlocks = blockSize / 8;
         for (var yb = 0; yb < subBlocks; yb++)
         for (var xb = 0; xb < subBlocks; xb++)
         {
-            var inBase = (yb * subBlocks + xb) * 64;
-            for (var sy = 0; sy < 8; sy++)
-            for (var sx = 0; sx < 8; sx++)
-            {
-                var outPos = (yb * 8 + sy) * blockSize + (xb * 8 + sx);
-                output[outPos] = input[inBase + ZigZagIx[sx, sy]];
-            }
+            var off = (yb * subBlocks + xb) * 64;
+            for (var y = 0; y < 8; y++)
+            for (var x = 0; x < 8; x++)
+                output[off + table[x, y]] = input[off + y * 8 + x];
         }
         return output;
     }
@@ -141,61 +135,43 @@ public class GolombRiceCoder : ICoder
         return output.ToArray();
     }
 
-    private int[] _RLEEncode(int[] input, int blockSize)
+    private int[] _RLEEncode(int[] input)
     {
         if (!RLE) return input;
-
+        
         var output = new List<int>();
-        var subBlocks = blockSize / 8;
 
-        for (var b = 0; b < subBlocks * subBlocks; b++)
+        var symbol = input[0];
+        var count = 0;
+
+        foreach (var v in input)
         {
-            var p = b * 64;
-            var end = p + 64;
-
-            while (p < end)
+            if (v == symbol && count < RLEMax) count++;
+            else
             {
-                if (input[p] == 0)
-                {
-                    var z = 1;
-                    while (p + z < end && input[p + z] == 0 && z < RLEMax) z++;
-                    output.Add(0);
-                    output.Add(z);
-                    p += z;
-                }
-                else
-                {
-                    var sym = input[p++];
-                    var z = 0;
-                    while (p + z < end && input[p + z] == 0 && z < RLEMax) z++;
-                    output.Add(sym);
-                    output.Add(z);
-                    p += z;
-                }
+                output.Add(count);
+                output.Add(symbol);
+                symbol = v;
+                count = 1;
             }
         }
-
+        
+        output.Add(count);
+        output.Add(symbol);
         return output.ToArray();
     }
-
-    private int[] _RLEDecode(int[] input, int blockSize)
+    
+    private int[] _RLEDecode(int[] input)
     {
         if (!RLE) return input;
-
+        
         var output = new List<int>();
 
-        for (var i = 0; i < input.Length - 1; i += 2)
+        for (var i = 0; i < input.Length; i += 2)
         {
-            var sym = input[i];
-            var zeros = input[i + 1];
-
-            if (sym != 0)
-                output.Add(sym);
-
-            for (var z = 0; z < zeros; z++)
-                output.Add(0);
+            for (var r = 0; r < input[i]; r++) output.Add(input[i+1]);
         }
-
+        
         return output.ToArray();
     }
 }

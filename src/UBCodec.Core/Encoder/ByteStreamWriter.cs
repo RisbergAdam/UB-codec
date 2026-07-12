@@ -6,7 +6,7 @@ public class ByteStreamWriter
 {
     private List<Byte> _list = new();
 
-    private string _region = null;
+    private string _region = "unset";
 
     private Dictionary<string, int> _regionBytes = [];
 
