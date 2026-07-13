@@ -43,7 +43,7 @@ public class GolombRiceCoderTest
     }
 
     [Test]
-    public void EncodeDecodeTest()
+    public void EncodeDecodeTest1()
     {
         int[,] data1 =
         {
@@ -115,23 +115,81 @@ public class GolombRiceCoderTest
 
         var blockSize = 64;
 
-        var coder = new GolombRiceCoder()
-        {
-            ZigZag = false,
-            GolombM = 16
-        };
-        var stream = new ByteStreamWriter();
-        stream.SetRegion("coder");
-        coder.Encode(blockSize, data1, stream);
+        var results = new List<(int, int, int)>();
 
-        var encodedBytes = stream.GetArray().Length;
-        Console.WriteLine($"Encoded {blockSize*blockSize} elements into {encodedBytes} bytes");
+        foreach (var p1 in new List<int>([2, 4, 8, 16, 32, 64, 128, 256, 512]))
+        foreach (var p2 in new List<int>([2, 4, 8, 16, 32, 64, 128, 256, 512]))
+        {
+            var coder = new GolombRiceCoder()
+            {
+                GolombM = p1,
+                GolombZM = p2
+            };
+            var stream = new ByteStreamWriter();
+            stream.SetRegion("coder");
+            coder.Encode(blockSize, data1, stream);
+
+            var encodedBytes = stream.GetArray().Length;
+            results.Add((encodedBytes, p1, p2));
+            
+            var output = new int[blockSize, blockSize];
+            coder.Decode(blockSize, new ByteStreamReader(stream.GetArray()), output);
+            
+            for (var y = 0; y < blockSize; y++)
+            for (var x = 0; x < blockSize; x++)
+            {
+                Assert.That(output[x, y], Is.EqualTo(data1[x, y]));
+            }
+        }
         
-        var output = new int[blockSize, blockSize];
+        results.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+
+        foreach (var (size, p1, p2) in results)
+        {
+            Console.WriteLine($"Params: GolombM {p1} GolombZM {p2} size: {size}");
+        }
+        
+        /*var output = new int[blockSize, blockSize];
         coder.Decode(blockSize, new ByteStreamReader(stream.GetArray()), output);
         
         for (var y = 0; y < blockSize; y++)
         for (var x = 0; x < blockSize; x++)
+        {
+            Assert.That(output[x, y], Is.EqualTo(data1[x, y]));
+        }*/
+    }
+    
+    [Test]
+    public void EncodeDecodeTest2()
+    {
+        int[,] data1 =
+        {
+            { 1,2,6,7,0,0,0,0 },
+            { 3,5,8,0,0,0,0,0 },
+            { 4,9,0,0,0,0,0,0 },
+            { 10,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+        };
+        
+
+        var coder = new GolombRiceCoder()
+        {
+            GolombM = 32
+        };
+        var stream = new ByteStreamWriter();
+        stream.SetRegion("coder");
+        coder.Encode(8, data1, stream);
+
+        var encodedBytes = stream.GetArray().Length;
+        
+        var output = new int[8, 8];
+        coder.Decode(8, new ByteStreamReader(stream.GetArray()), output);
+        
+        for (var y = 0; y < 8; y++)
+        for (var x = 0; x < 8; x++)
         {
             Assert.That(output[x, y], Is.EqualTo(data1[x, y]));
         }

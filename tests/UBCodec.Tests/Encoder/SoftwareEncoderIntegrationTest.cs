@@ -114,7 +114,7 @@ public class SoftwareEncoderIntegrationTest
             DCT = new DctInt1Transform(),
             Coder = new GolombRiceCoder
             {
-                ZigZag = true,
+                // ZigZag = true,
                 GolombM = 16
             },
         };
@@ -144,17 +144,16 @@ public class SoftwareEncoderIntegrationTest
         
         var config = new CodecConfig
         {
-            UVDownsample = 2,
-            Quality = 2,
+            UVDownsample = 4,
+            Quality = 8,
             BlockSize = 32,
             ReferenceBlockPadding = 0,
             MotionEstimator = new NoopMotionEstimator(),
             DCT = new DctInt1Transform(),
-            // Coder = new GolombRiceCoderOrig
             Coder = new GolombRiceCoder
             {
-                ZigZag = true,
-                GolombM = 32
+                GolombM = 8,
+                GolombZM = 16,
             },
         };
 

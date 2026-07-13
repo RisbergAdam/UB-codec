@@ -5,197 +5,155 @@ namespace UBCodec.Core.Encoder;
 
 public class GolombRiceCoder : ICoder
 {
-    public bool RLE { get; set; } = true;
-    public int RLEMax { get; set; } = 65536;
-    public bool Golomb { get; set; } = true;
-    public int GolombM { get; set; } = 64;
-    public bool ZigZag { get; set; } = true;
-
-    static readonly int[,] ZigZagIx =
-    {
-        { 0, 1, 5, 6, 14, 15, 27, 28 },
-        { 2, 4, 7, 13, 16, 26, 29, 42 },
-        { 3, 8, 12, 17, 25, 30, 41, 43 },
-        { 9, 11, 18, 24, 31, 40, 44, 53 },
-        { 10, 19, 23, 32, 39, 45, 52, 54 },
-        { 20, 22, 33, 38, 46, 51, 55, 60 },
-        { 21, 34, 37, 47, 50, 56, 59, 61 },
-        { 35, 36, 48, 49, 57, 58, 62, 63 },
-    };
+    public int GolombM { get; set; } = 64; // GR parameter for coefficient values
+    public int GolombZM { get; set; } = 64; // GR parameter for zero-run lengths
 
     public void Encode(int blockSize, int[,] input, ByteStreamWriter output)
     {
-        var flat = new int[blockSize * blockSize];
-        for (int y = 0; y < blockSize; y++)
-        for (int x = 0; x < blockSize; x++)
-            flat[y * blockSize + x] = input[x, y];
+        int total = blockSize * blockSize;
+        var flat = new int[total];
+        int ix = 0;
 
-        if (ZigZag) flat = ZigZagReorder(flat, blockSize);
+        // Block-interleaved scan: for each (x,y) within an 8x8 tile,
+        // visit all sub-blocks before moving to the next (x,y)
+        for (int y = 0; y < 8; y++)
+        for (int x = 0; x < 8; x++)
+        {
+            for (int yb = 0; yb < blockSize / 8; yb++)
+            for (int xb = 0; xb < blockSize / 8; xb++)
+            {
+                flat[ix++] = input[xb * 8 + x, yb * 8 + y];
+            }
+        }
 
-        var encoded = _GolombRiceEncode(_RLEEncode(flat, blockSize));
-        output.WriteBitArray(encoded.GetArray());
+        var bits = new BitList();
+        int zeroes = 0;
+
+        // Precompute log2 parameters once
+        int K_RUN = (int)Math.Log2(GolombZM);
+        int K_VAL = (int)Math.Log2(GolombM);
+
+        foreach (int coef in flat)
+        {
+            if (coef == 0)
+            {
+                zeroes++;
+            }
+            else
+            {
+                WriteGolombRice(bits, zeroes, K_RUN);
+                WriteSignedGolombRice(bits, coef, K_VAL);
+                zeroes = 0;
+            }
+        }
+
+        // Mandatory final run (covers trailing zeros, is 0 if block ended with a non-zero)
+        WriteGolombRice(bits, zeroes, K_RUN);
+
+        output.WriteBitArray(bits.GetArray());
+    }
+
+    // ── helpers ────────────────────────────────────────────────────────
+
+    /// <summary>Encode a non-negative integer with Golomb–Rice.</summary>
+    private static void WriteGolombRice(BitList bits, int value, int K)
+    {
+        int Q = value >> K; // quotient
+        int R = value & ((1 << K) - 1); // remainder
+
+        // unary quotient
+        for (int i = 0; i < Q; i++) bits.AddBit(1);
+        bits.AddBit(0); // delimiter
+
+        // remainder in K bits, MSB-first  [FIX #1]
+        for (int i = K - 1; i >= 0; i--)
+            bits.AddBit((R & (1 << i)) != 0 ? 1 : 0);
+    }
+
+    /// <summary>Encode a signed integer with sign-mapped Golomb–Rice.</summary>
+    private static void WriteSignedGolombRice(BitList bits, int value, int K)
+    {
+        // Signed → unsigned mapping:  0→0, +1→2, −1→1, +2→4, −2→3, …
+        // Guard against overflow  [FIX #3]
+        int abs = value >= 0 ? value : -value; // |value|
+        int mapped = value >= 0 ? (abs * 2) : (abs * 2 - 1);
+
+        WriteGolombRice(bits, mapped, K);
     }
 
     public void Decode(int blockSize, ByteStreamReader input, int[,] output)
     {
-        var flat = _RLEDecode(_GolombRiceDecode(input.ReadBitArray()), blockSize);
+        var bits = input.ReadBitArray();
+        int pos = 0;
+        int total = blockSize * blockSize;
+        var flat = new int[total];
+        int decoded = 0;
 
-        if (ZigZag) flat = InverseZigZagReorder(flat, blockSize);
+        int K_RUN = (int)Math.Log2(GolombZM);
+        int K_VAL = (int)Math.Log2(GolombM);
 
-        for (int y = 0; y < blockSize; y++)
-        for (int x = 0; x < blockSize; x++)
-            output[x, y] = flat[y * blockSize + x];
-    }
-
-    static int[] ZigZagReorder(int[] input, int blockSize)
-    {
-        var output = new int[input.Length];
-        var subBlocks = blockSize / 8;
-        for (var yb = 0; yb < subBlocks; yb++)
-        for (var xb = 0; xb < subBlocks; xb++)
+        while (decoded < total)
         {
-            var outBase = (yb * subBlocks + xb) * 64;
-            for (var sy = 0; sy < 8; sy++)
-            for (var sx = 0; sx < 8; sx++)
+            // Decode a zero-run length (raw integer, no sign unmapping)
+            int run = ReadGR(bits, ref pos, K_RUN);
+
+            for (int i = 0; i < run && decoded < total; i++)
+                flat[decoded++] = 0;
+
+            if (decoded >= total)
+                break;
+
+            // Decode a signed coefficient
+            int mapped = ReadGR(bits, ref pos, K_VAL);
+            flat[decoded++] = UnmapSign(mapped);
+        }
+
+        // ── inverse block-interleaved scan ─────────────────────────────────
+        int ix = 0;
+        for (int y = 0; y < 8; y++)
+        for (int x = 0; x < 8; x++)
+        {
+            for (int yb = 0; yb < blockSize / 8; yb++)
+            for (int xb = 0; xb < blockSize / 8; xb++)
             {
-                var inPos = (yb * 8 + sy) * blockSize + (xb * 8 + sx);
-                output[outBase + ZigZagIx[sx, sy]] = input[inPos];
+                output[xb * 8 + x, yb * 8 + y] = flat[ix++];
             }
         }
-        return output;
     }
 
-    static int[] InverseZigZagReorder(int[] input, int blockSize)
+// ── bit-level helpers ─────────────────────────────────────────────────
+
+    /// <summary>Decode one non-negative Golomb–Rice codeword from the BitArray.</summary>
+    private static int ReadGR(BitArray bits, ref int pos, int K)
     {
-        var output = new int[input.Length];
-        var subBlocks = blockSize / 8;
-        for (var yb = 0; yb < subBlocks; yb++)
-        for (var xb = 0; xb < subBlocks; xb++)
+        // ---- unary quotient: count 1s until the 0 delimiter ----
+        int Q = 0;
+        while (pos < bits.Length && bits[pos])
         {
-            var inBase = (yb * subBlocks + xb) * 64;
-            for (var sy = 0; sy < 8; sy++)
-            for (var sx = 0; sx < 8; sx++)
-            {
-                var outPos = (yb * 8 + sy) * blockSize + (xb * 8 + sx);
-                output[outPos] = input[inBase + ZigZagIx[sx, sy]];
-            }
+            Q++;
+            pos++;
         }
-        return output;
-    }
-    
-    private BitList _GolombRiceEncode(int[] input)
-    {
-        var bits = new BitList();
-        int K = (int) Math.Log2(GolombM);
-        
-        foreach (var v in input)
+
+        pos++; // skip the delimiter 0
+
+        // ---- remainder: K bits, MSB-first ----
+        int R = 0;
+        for (int i = K - 1; i >= 0; i--)
         {
-            var value = v >= 0 ? v * 2 : -v * 2 - 1;
-            var Q = value >> K;
-            var R = value & (GolombM - 1);
-            for (var i = 0; i < Q; i++) bits.AddBit(1);
-            bits.AddBit(0);
-            for (var i = 0; i < K; i++) bits.AddBit((R & (1 << i)) != 0 ? 1 : 0);
+            if (pos < bits.Length && bits[pos])
+                R |= (1 << i);
+            pos++;
         }
-        
-        return bits;
+
+        return (Q << K) | R;
     }
 
-    private int[] _GolombRiceDecode(BitArray input)
+    /// <summary>Reverse the sign→unsigned mapping.</summary>
+    private static int UnmapSign(int mapped)
     {
-        var output = new List<int>();
-        int K = (int) Math.Log2(GolombM);
-
-        bool decodeQ = true;
-        var Q = 0;
-        var R = 0;
-        var bitsR = 0;
-
-        foreach (bool v in input)
-        {
-            if (decodeQ)
-            {
-                if (v) Q++;
-                else
-                {
-                    R = 0;
-                    bitsR = 0;
-                    decodeQ = false;
-                }
-            }
-            else
-            {
-                if (v) R |= (1 << bitsR);
-                bitsR++;
-                if (bitsR == K)
-                {
-                    var value = Q * GolombM + R;
-                    value = (value % 2 == 0) ? value / 2 : (value + 1) / -2;
-                    output.Add(value);
-                    Q = 0;
-                    decodeQ = true;
-                }
-            }
-        }
-
-        return output.ToArray();
-    }
-
-    private int[] _RLEEncode(int[] input, int blockSize)
-    {
-        if (!RLE) return input;
-
-        var output = new List<int>();
-        var subBlocks = blockSize / 8;
-
-        for (var b = 0; b < subBlocks * subBlocks; b++)
-        {
-            var p = b * 64;
-            var end = p + 64;
-
-            while (p < end)
-            {
-                if (input[p] == 0)
-                {
-                    var z = 1;
-                    while (p + z < end && input[p + z] == 0 && z < RLEMax) z++;
-                    output.Add(0);
-                    output.Add(z);
-                    p += z;
-                }
-                else
-                {
-                    var sym = input[p++];
-                    var z = 0;
-                    while (p + z < end && input[p + z] == 0 && z < RLEMax) z++;
-                    output.Add(sym);
-                    output.Add(z);
-                    p += z;
-                }
-            }
-        }
-
-        return output.ToArray();
-    }
-
-    private int[] _RLEDecode(int[] input, int blockSize)
-    {
-        if (!RLE) return input;
-
-        var output = new List<int>();
-
-        for (var i = 0; i < input.Length - 1; i += 2)
-        {
-            var sym = input[i];
-            var zeros = input[i + 1];
-
-            if (sym != 0)
-                output.Add(sym);
-
-            for (var z = 0; z < zeros; z++)
-                output.Add(0);
-        }
-
-        return output.ToArray();
+        if ((mapped & 1) == 0) // even → non-negative
+            return mapped >> 1;
+        else // odd → negative
+            return -((mapped + 1) >> 1);
     }
 }
