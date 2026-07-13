@@ -144,15 +144,15 @@ public class SoftwareEncoderIntegrationTest
         
         var config = new CodecConfig
         {
-            UVDownsample = 4,
-            Quality = 8,
+            UVDownsample = 2,
+            Quality = 2,
             BlockSize = 32,
             ReferenceBlockPadding = 0,
             MotionEstimator = new NoopMotionEstimator(),
             DCT = new DctInt1Transform(),
             Coder = new GolombRiceCoder
             {
-                GolombM = 8,
+                GolombM = 4,
                 GolombZM = 16,
             },
         };
