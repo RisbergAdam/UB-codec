@@ -121,7 +121,7 @@ public class EncoderCore(CodecConfig config)
 
     private bool IsIntraRefresh(int frameSeq)
     {
-        int colStep = 1;
+        int colStep = 2;
         var currCol = (_region.X / _region.Width) / colStep;
         var numGroups = (_cols + colStep - 1) / colStep;
         return currCol == (frameSeq % numGroups);

@@ -140,33 +140,39 @@ public class SoftwareEncoderIntegrationTest
     [Test]
     public async Task VideoTest()
     {
+        var m = 4; var zm = 8;
+        // foreach (var m in new List<int>([4, 8, 16]))
+        // foreach (var zm in new List<int>([4, 8, 16]))
+        {
+            TestContext.Progress.WriteLine($"===== TEST M {m} ZM {zm} =====");
             var config = new CodecConfig
             {
                 UVDownsample = 2,
-                Quality = 5,
-                BlockSize = 32,
+                Quality = 2,
+                BlockSize = 64,
                 ReferenceBlockPadding = 0,
                 MotionEstimator = new NoopMotionEstimator(),
                 DCT = new DctInt1Transform(),
                 Coder = new GolombRiceCoder
                 {
-                    GolombM = 8,
-                    GolombZM = 8,
+                    GolombM = m,
+                    GolombZM = zm,
                 },
             };
 
             var frameFiles = await SplitVideo(
-                Path.Join(_root, "resources", "stockholm_720p.y4m"),
-                maxFrames:30,
-                scaleDiv:1,
+                Path.Join(_root, "resources", "drone.mp4"),
+                maxFrames:60*3,
+                scaleDiv:2,
                 blockSize:config.BlockSize);
 
             var encoder = new EncoderSide(config);
-            var decoder = new DecoderSide(config);
+            var decoder = new DecoderSide(config, simulateFrameDrops:false);
             var totalBytes = 0;
 
             for (var i = 0; i < frameFiles.Length; i++)
             {
+                TestContext.Progress.WriteLine($"frame {i}/{frameFiles.Length}");
                 var frame = YCoCgBuffer.FromBitmap(ReadPng(frameFiles[i]), config.UVDownsample);
                 var bytes = encoder.Encode(frame);
                 totalBytes += bytes.Length;
@@ -175,13 +181,13 @@ public class SoftwareEncoderIntegrationTest
             }
             
             await StitchVideo("rec_%04d.png", Path.Join(_root, "encoded.mp4"));
-            await StitchVideo("rec_%04d.png", Path.Join(_artifacts, "encoded_lossless.mp4"), lossless: true);
-            await StitchVideo("frame_%04d.png", Path.Join(_artifacts, "reference_lossless.mp4"), lossless: true);
+            // await StitchVideo("rec_%04d.png", Path.Join(_artifacts, "encoded_lossless.mp4"), lossless: true);
+            // await StitchVideo("frame_%04d.png", Path.Join(_artifacts, "reference_lossless.mp4"), lossless: true);
 
-            var vmafJson = await RunVmaf(
+            /* var vmafJson = await RunVmaf(
                 Path.Join(_artifacts, "reference_lossless.mp4"),
                 Path.Join(_artifacts, "encoded_lossless.mp4"));
-            PrintVmafSummary(vmafJson);
+            PrintVmafSummary(vmafJson);*/
             
             var uncompressedSize = encoder.BufferSize().Item1 * encoder.BufferSize().Item2 * 3;
             var averageFrameSize = totalBytes / frameFiles.Length;
@@ -194,10 +200,11 @@ public class SoftwareEncoderIntegrationTest
 
             var grc = (GolombRiceCoder)config.Coder;
             Console.WriteLine($"- Codec: UVDownsample={config.UVDownsample} Quality={config.Quality} BlockSize={config.BlockSize} GolombM={grc.GolombM} GolombZM={grc.GolombZM}");
+        }
     }
     
     async Task<string[]> SplitVideo(string inputVideo, int maxFrames, double scaleDiv = 1, int blockSize = 0) {
-        var vf = $"fps=4,scale=iw/{scaleDiv}:ih/{scaleDiv}";
+        var vf = $"fps=60,scale=iw/{scaleDiv}:ih/{scaleDiv}";
         if (blockSize > 0)
             vf += $",crop=iw-mod(iw\\,{blockSize}):ih-mod(ih\\,{blockSize}):0:0";
         await Cli.Wrap(ffmpeg)
@@ -221,7 +228,7 @@ public class SoftwareEncoderIntegrationTest
             : new[] { "-c:v", "libx264", "-crf", "18" };
 
         await Cli.Wrap(ffmpeg)
-            .WithArguments(["-y", "-framerate", "30", "-i", Path.Join(_artifacts, inputPattern), ..codecArgs, "-pix_fmt", "yuv420p", outputVideo])
+            .WithArguments(["-y", "-framerate", "60", "-i", Path.Join(_artifacts, inputPattern), ..codecArgs, "-pix_fmt", "yuv420p", outputVideo])
             .WithValidation(CommandResultValidation.ZeroExitCode)
             .ExecuteAsync();
         Console.WriteLine($"- Output: {outputVideo} ({new FileInfo(outputVideo).Length / 1024} KB)");
