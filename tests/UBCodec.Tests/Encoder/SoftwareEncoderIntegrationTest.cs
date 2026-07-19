@@ -40,7 +40,7 @@ class EncoderSide(CodecConfig config)
     }
 }
 
-class DecoderSide(CodecConfig config)
+class DecoderSide(CodecConfig config, bool simulateFrameDrops = false)
 {
     private SoftwareEncoder _encoder = new(config);
     
@@ -61,7 +61,7 @@ class DecoderSide(CodecConfig config)
         _prev ??= YCoCgBuffer.FromSize(width, height, _encoder.Config.UVDownsample);
         _frameDecoded ??= YCoCgBuffer.FromSize(width, height, _encoder.Config.UVDownsample);
 
-        if (frameSeq % 5 == -1)
+        if (simulateFrameDrops && frameSeq % 5 == 0)
         {
             // Simulate frame drop
         }
@@ -101,9 +101,7 @@ public class SoftwareEncoderIntegrationTest
 
     [Test]
     public async Task SingleFrameTest()
-    {
-        var frameFiles = await SplitVideo(Path.Join(_root, "resources", "city.mp4"), 4);
-        
+    {        
         var config = new CodecConfig
         {
             UVDownsample = 2,
@@ -118,9 +116,11 @@ public class SoftwareEncoderIntegrationTest
                 GolombM = 16
             },
         };
+
+        var frameFiles = await SplitVideo(Path.Join(_root, "resources", "city.mp4"), 4, blockSize: config.BlockSize);
         
-        var frame1 = YCoCgBuffer.FromBitmap(BlockResize(ReadPng(frameFiles[0]), config.BlockSize), config.UVDownsample);
-        var frame2 = YCoCgBuffer.FromBitmap(BlockResize(ReadPng(frameFiles[3]), config.BlockSize), config.UVDownsample);
+        var frame1 = YCoCgBuffer.FromBitmap(ReadPng(frameFiles[0]), config.UVDownsample);
+        var frame2 = YCoCgBuffer.FromBitmap(ReadPng(frameFiles[3]), config.UVDownsample);
 
         var encoder = new EncoderSide(config).Initialize(frame1);
         var decoder = new DecoderSide(config).Initialize(frame1);
@@ -140,48 +140,66 @@ public class SoftwareEncoderIntegrationTest
     [Test]
     public async Task VideoTest()
     {
-        var frameFiles = await SplitVideo(Path.Join(_root, "resources", "cars.mp4"), 30, scaleDiv:2);
-        
-        var config = new CodecConfig
-        {
-            UVDownsample = 2,
-            Quality = 2,
-            BlockSize = 32,
-            ReferenceBlockPadding = 0,
-            MotionEstimator = new NoopMotionEstimator(),
-            DCT = new DctInt1Transform(),
-            Coder = new GolombRiceCoder
+            var config = new CodecConfig
             {
-                GolombM = 4,
-                GolombZM = 16,
-            },
-        };
+                UVDownsample = 2,
+                Quality = 5,
+                BlockSize = 32,
+                ReferenceBlockPadding = 0,
+                MotionEstimator = new NoopMotionEstimator(),
+                DCT = new DctInt1Transform(),
+                Coder = new GolombRiceCoder
+                {
+                    GolombM = 8,
+                    GolombZM = 8,
+                },
+            };
 
-        var encoder = new EncoderSide(config);
-        var decoder = new DecoderSide(config);
-        var totalBytes = 0;
+            var frameFiles = await SplitVideo(
+                Path.Join(_root, "resources", "stockholm_720p.y4m"),
+                maxFrames:30,
+                scaleDiv:1,
+                blockSize:config.BlockSize);
 
-        for (var i = 0; i < frameFiles.Length; i++)
-        {
-            var frame = YCoCgBuffer.FromBitmap(BlockResize(ReadPng(frameFiles[i]), config.BlockSize), config.UVDownsample);
-            var bytes = encoder.Encode(frame);
-            totalBytes += bytes.Length;
-            var frameOut = decoder.Decode(bytes);
-            WritePng(frameOut.ToBitmap(), Path.Join(_artifacts, $"rec_{i + 1:D4}.png"));
-        }
-        
-        await StitchVideo(Path.Join(_root, $"output_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.mp4"));
-        
-        var uncompressedSize = encoder.BufferSize().Item1 * encoder.BufferSize().Item2 * 3;
-        var averageFrameSize = totalBytes / frameFiles.Length;
-        
-        Console.WriteLine($"- Video stream total size: {totalBytes/1024} kb");
-        Console.WriteLine($"- Average frame size: {averageFrameSize/1024} kb");
-        Console.WriteLine($"- Average compression:  {Math.Round(averageFrameSize*10000.0/uncompressedSize)/100.0}%");
+            var encoder = new EncoderSide(config);
+            var decoder = new DecoderSide(config);
+            var totalBytes = 0;
+
+            for (var i = 0; i < frameFiles.Length; i++)
+            {
+                var frame = YCoCgBuffer.FromBitmap(ReadPng(frameFiles[i]), config.UVDownsample);
+                var bytes = encoder.Encode(frame);
+                totalBytes += bytes.Length;
+                var frameOut = decoder.Decode(bytes);
+                WritePng(frameOut.ToBitmap(), Path.Join(_artifacts, $"rec_{i + 1:D4}.png"));
+            }
+            
+            await StitchVideo("rec_%04d.png", Path.Join(_root, "encoded.mp4"));
+            await StitchVideo("rec_%04d.png", Path.Join(_artifacts, "encoded_lossless.mp4"), lossless: true);
+            await StitchVideo("frame_%04d.png", Path.Join(_artifacts, "reference_lossless.mp4"), lossless: true);
+
+            var vmafJson = await RunVmaf(
+                Path.Join(_artifacts, "reference_lossless.mp4"),
+                Path.Join(_artifacts, "encoded_lossless.mp4"));
+            PrintVmafSummary(vmafJson);
+            
+            var uncompressedSize = encoder.BufferSize().Item1 * encoder.BufferSize().Item2 * 3;
+            var averageFrameSize = totalBytes / frameFiles.Length;
+            var bpp = totalBytes * 8.0 / (encoder.BufferSize().Item1 * encoder.BufferSize().Item2 * frameFiles.Length);
+            
+            // Console.WriteLine($"- Video stream total size: {totalBytes/1024} kb");
+            // Console.WriteLine($"- Average frame size: {averageFrameSize/1024} kb");
+            // Console.WriteLine($"- Average compression:  {Math.Round(averageFrameSize*10000.0/uncompressedSize)/100.0}%");
+            Console.WriteLine($"- Bits per pixel: {bpp:F3}");
+
+            var grc = (GolombRiceCoder)config.Coder;
+            Console.WriteLine($"- Codec: UVDownsample={config.UVDownsample} Quality={config.Quality} BlockSize={config.BlockSize} GolombM={grc.GolombM} GolombZM={grc.GolombZM}");
     }
     
-    async Task<string[]> SplitVideo(string inputVideo, int maxFrames, double scaleDiv = 1) {
-        var vf = $"fps=30,scale=iw/{scaleDiv}:ih/{scaleDiv}";
+    async Task<string[]> SplitVideo(string inputVideo, int maxFrames, double scaleDiv = 1, int blockSize = 0) {
+        var vf = $"fps=4,scale=iw/{scaleDiv}:ih/{scaleDiv}";
+        if (blockSize > 0)
+            vf += $",crop=iw-mod(iw\\,{blockSize}):ih-mod(ih\\,{blockSize}):0:0";
         await Cli.Wrap(ffmpeg)
             .WithArguments([
                 "-y", "-i", inputVideo, "-vf", vf, "-vframes", $"{maxFrames}",
@@ -196,12 +214,58 @@ public class SoftwareEncoderIntegrationTest
             .ToArray();
     }
 
-    async Task StitchVideo(string outputVideo)
+    async Task StitchVideo(string inputPattern, string outputVideo, bool lossless = false)
     {
+        var codecArgs = lossless
+            ? new[] { "-c:v", "ffv1" }
+            : new[] { "-c:v", "libx264", "-crf", "18" };
+
         await Cli.Wrap(ffmpeg)
-            .WithArguments(["-y", "-framerate", "30", "-i", Path.Join(_artifacts, "rec_%04d.png"), "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p", outputVideo])
+            .WithArguments(["-y", "-framerate", "30", "-i", Path.Join(_artifacts, inputPattern), ..codecArgs, "-pix_fmt", "yuv420p", outputVideo])
             .WithValidation(CommandResultValidation.ZeroExitCode)
             .ExecuteAsync();
         Console.WriteLine($"- Output: {outputVideo} ({new FileInfo(outputVideo).Length / 1024} KB)");
+    }
+
+    async Task<string> RunVmaf(string refVideo, string encVideo)
+    {
+        var jsonPath = Path.Join(_artifacts, "vmaf.json");
+        await Cli.Wrap(ffmpeg)
+            .WithArguments([
+                "-y", "-i", encVideo, "-i", refVideo,
+                "-lavfi", $"libvmaf=log_path={jsonPath}:log_fmt=json:n_threads=4",
+                "-f", "null", "-"
+            ])
+            .WithValidation(CommandResultValidation.None)
+            .ExecuteAsync();
+        return jsonPath;
+    }
+
+    void PrintVmafSummary(string jsonPath)
+    {
+        TestContext.Out.WriteLine($"- VMAF report: {jsonPath}");
+        if (!File.Exists(jsonPath)) return;
+        var json = File.ReadAllText(jsonPath);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("pooled_metrics", out var metrics) &&
+            metrics.TryGetProperty("vmaf", out var vmaf))
+        {
+            var harmonic = vmaf.GetProperty("harmonic_mean").GetDouble();
+            TestContext.Out.WriteLine($"- VMAF harmonic mean: {harmonic:F2}");
+        }
+
+        if (root.TryGetProperty("frames", out var frames))
+        {
+            double sum = 0;
+            int count = 0;
+            foreach (var f in frames.EnumerateArray())
+            {
+                if (count++ == 0) continue; // skip frame 0
+                sum += f.GetProperty("metrics").GetProperty("vmaf").GetDouble();
+            }
+            var mean = sum / (count - 1);
+            TestContext.Out.WriteLine($"- VMAF arithmetic mean: {mean:F2}");
+        }
     }
 }

@@ -34,8 +34,8 @@ public class SoftwareEncoder(CodecConfig config)
         
         var bytes = byteStream.GetArray();
         
-        Console.WriteLine($"Encoded {xBlocks*yBlocks} blocks into {bytes.Length / 1024} kb");
-        byteStream.PrintStatistics();
+        // Console.WriteLine($"Encoded {xBlocks*yBlocks} blocks into {bytes.Length / 1024} kb");
+        // byteStream.PrintStatistics();
         return bytes;
     }
 
