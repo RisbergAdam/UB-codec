@@ -55,9 +55,16 @@ public class ByteStreamWriter
 
     public void PrintStatistics()
     {
+        var totalBytes = 0;
         foreach (var (region, bytes) in _regionBytes)
-        {
-            Console.WriteLine($"{region}: {bytes} ({Math.Round(bytes*100.0/Count)}%))");
-        }
+            totalBytes += bytes;
+        foreach (var (region, bytes) in _regionBytes)
+            Console.WriteLine($"{region}: {bytes} ({bytes*100.0/totalBytes:F2}%))");
+        Console.WriteLine($"Total bytes: {totalBytes}");
+    }
+
+    public void ResetStatistics()
+    {
+        _regionBytes.Clear();
     }
 }

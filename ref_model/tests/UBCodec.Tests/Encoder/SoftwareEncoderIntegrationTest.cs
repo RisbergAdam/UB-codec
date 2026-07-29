@@ -1,6 +1,6 @@
 using CliWrap;
-using System.Runtime.InteropServices;
 using UBCodec.Core.Encoder;
+using UBCodec.Tests.Util;
 using static UBCodec.Core.Utils.ImageUtils;
 
 namespace UBCodec.Tests.Encoder;
@@ -9,13 +9,13 @@ class EncoderSide(CodecConfig config)
 {
     private SoftwareEncoder _encoder = new(config);
 
-    private YCoCgBuffer? _prev;
+    public PlanarImage? _prev;
     
-    private YCoCgBuffer? _frameDecoded;
+    private PlanarImage? _frameDecoded;
 
     private int _frameSeq = 0;
 
-    public EncoderSide Initialize(YCoCgBuffer frame)
+    public EncoderSide Initialize(PlanarImage frame)
     {
         _prev = frame;
         return this;
@@ -26,10 +26,10 @@ class EncoderSide(CodecConfig config)
         return (_prev.Width, _prev.Height);
     }
 
-    public byte[] Encode(YCoCgBuffer frame)
+    public byte[] Encode(PlanarImage frame)
     {
-        _prev ??= YCoCgBuffer.FromSize(frame.Width, frame.Height, _encoder.Config.UVDownsample);
-        _frameDecoded ??= YCoCgBuffer.FromSize(frame.Width, frame.Height, _encoder.Config.UVDownsample);
+        _prev ??= PlanarImage.FromSize(frame.Width, frame.Height, _encoder.Config.UVDownsample);
+        _frameDecoded ??= PlanarImage.FromSize(frame.Width, frame.Height, _encoder.Config.UVDownsample);
 
         var data = _encoder.EncodeFrame(_prev, frame, _frameSeq);
         _encoder.DecodeFrame(_prev, _frameDecoded, data);
@@ -44,22 +44,22 @@ class DecoderSide(CodecConfig config, bool simulateFrameDrops = false)
 {
     private SoftwareEncoder _encoder = new(config);
     
-    private YCoCgBuffer? _prev;
+    private PlanarImage? _prev;
     
-    private YCoCgBuffer? _frameDecoded;
+    private PlanarImage? _frameDecoded;
 
-    public DecoderSide Initialize(YCoCgBuffer frame)
+    public DecoderSide Initialize(PlanarImage frame)
     {
         _prev = frame;
         return this;
     }
 
-    public YCoCgBuffer Decode(byte[] payload)
+    public PlanarImage Decode(byte[] payload)
     {
         var (frameSeq, width, height) = _encoder.DecodeHeader(new ByteStreamReader(payload));
         
-        _prev ??= YCoCgBuffer.FromSize(width, height, _encoder.Config.UVDownsample);
-        _frameDecoded ??= YCoCgBuffer.FromSize(width, height, _encoder.Config.UVDownsample);
+        _prev ??= PlanarImage.FromSize(width, height, _encoder.Config.UVDownsample);
+        _frameDecoded ??= PlanarImage.FromSize(width, height, _encoder.Config.UVDownsample);
 
         if (simulateFrameDrops && frameSeq % 5 == 0)
         {
@@ -83,11 +83,6 @@ public class SoftwareEncoderIntegrationTest
 
     private static string _artifacts = Path.Join(_root, "artifacts", "integration_test");
 
-    private static string ffmpeg =>
-        RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? Path.Join(_root, "ffmpeg.exe")
-            : "ffmpeg";
-
     [SetUp]
     public void SetUp()
     {
@@ -105,22 +100,25 @@ public class SoftwareEncoderIntegrationTest
         var config = new CodecConfig
         {
             UVDownsample = 2,
-            BlockSize = 64,
-            Quality = 2,
+            BlockSize = 32,
+            Quality = 12,
             ReferenceBlockPadding = 0,
+            // MotionEstimator = new BlockMotionEstimatorReference(),
+            EstimateMotion = false,
             MotionEstimator = new NoopMotionEstimator(),
             DCT = new DctInt1Transform(),
             Coder = new GolombRiceCoder
             {
                 // ZigZag = true,
-                GolombM = 16
+                GolombM = 8,
+                GolombZM = 4,
             },
         };
 
-        var frameFiles = await SplitVideo(Path.Join(_root, "resources", "city.mp4"), 4, blockSize: config.BlockSize);
+        var frameFiles = await SplitVideo(Path.Join(_root, "resources", "drone.mp4"), 60, blockSize: config.BlockSize, scaleDiv:2);
         
-        var frame1 = YCoCgBuffer.FromBitmap(ReadPng(frameFiles[0]), config.UVDownsample);
-        var frame2 = YCoCgBuffer.FromBitmap(ReadPng(frameFiles[3]), config.UVDownsample);
+        var frame1 = PlanarImage.FromBitmap(ReadPng(Path.Join(_root, "resources", "output_prev.png")), config.UVDownsample);
+        var frame2 = PlanarImage.FromBitmap(ReadPng(frameFiles[42]), config.UVDownsample);
 
         var encoder = new EncoderSide(config).Initialize(frame1);
         var decoder = new DecoderSide(config).Initialize(frame1);
@@ -128,30 +126,31 @@ public class SoftwareEncoderIntegrationTest
         var bytes = encoder.Encode(frame2);
         var decoded = decoder.Decode(bytes);
         
-        var inputSize = frame1.Width * frame1.Height * 3.0;
-        var outputSize = bytes.Length * 1.0;
+        var bpp = bytes.Length * 8.0 / (frame1.Width * frame1.Height);
         
         WritePng(frame2.ToBitmap(), Path.Join(_root, $"output_expect.png"));
         WritePng(decoded.ToBitmap(), Path.Join(_root, $"output_actual.png"));
         
-        TestContext.Out.WriteLine($"Compression ratio: {Math.Round(outputSize/inputSize*100.0)}%");
+        Console.WriteLine($"PBB: {bpp:F3}");
     }
 
     [Test]
     public async Task VideoTest()
     {
-        var m = 4; var zm = 8;
-        // foreach (var m in new List<int>([4, 8, 16]))
-        // foreach (var zm in new List<int>([4, 8, 16]))
+        var m = 8; var zm = 8;
+        // foreach (var m in new List<int>([2, 4, 8, 16, 32, 64]))
+        // foreach (var zm in new List<int>([2, 4, 8, 16, 32, 64]))
         {
             TestContext.Progress.WriteLine($"===== TEST M {m} ZM {zm} =====");
             var config = new CodecConfig
             {
                 UVDownsample = 2,
-                Quality = 2,
-                BlockSize = 64,
+                Quality = 8,
+                BlockSize = 32,
                 ReferenceBlockPadding = 0,
-                MotionEstimator = new NoopMotionEstimator(),
+                // MotionEstimator = new NoopMotionEstimator(),
+                EstimateMotion = false,
+                MotionEstimator = new BlockMotionRefEstimator(),
                 DCT = new DctInt1Transform(),
                 Coder = new GolombRiceCoder
                 {
@@ -162,7 +161,7 @@ public class SoftwareEncoderIntegrationTest
 
             var frameFiles = await SplitVideo(
                 Path.Join(_root, "resources", "drone.mp4"),
-                maxFrames:60*3,
+                maxFrames:60,
                 scaleDiv:2,
                 blockSize:config.BlockSize);
 
@@ -172,31 +171,31 @@ public class SoftwareEncoderIntegrationTest
 
             for (var i = 0; i < frameFiles.Length; i++)
             {
-                TestContext.Progress.WriteLine($"frame {i}/{frameFiles.Length}");
-                var frame = YCoCgBuffer.FromBitmap(ReadPng(frameFiles[i]), config.UVDownsample);
+                if (i == 40)
+                {
+                    Console.WriteLine($"Frame #{i + 1}: {frameFiles[i]}");
+                    WritePng(encoder._prev.ToBitmap(), Path.Join(_root, $"output_prev.png"));
+                }
+                // TestContext.Progress.WriteLine($"frame {i}/{frameFiles.Length}");
+                var frame = PlanarImage.FromBitmap(ReadPng(frameFiles[i]), config.UVDownsample);
                 var bytes = encoder.Encode(frame);
                 totalBytes += bytes.Length;
                 var frameOut = decoder.Decode(bytes);
                 WritePng(frameOut.ToBitmap(), Path.Join(_artifacts, $"rec_{i + 1:D4}.png"));
+                
+                var bpp = totalBytes * 8.0 / (encoder.BufferSize().Item1 * encoder.BufferSize().Item2 * i);
+                TestContext.Progress.WriteLine($"- Bits per pixel: {bpp:F3}");
             }
             
             await StitchVideo("rec_%04d.png", Path.Join(_root, "encoded.mp4"));
-            // await StitchVideo("rec_%04d.png", Path.Join(_artifacts, "encoded_lossless.mp4"), lossless: true);
-            // await StitchVideo("frame_%04d.png", Path.Join(_artifacts, "reference_lossless.mp4"), lossless: true);
+            await StitchVideo("rec_%04d.png", Path.Join(_artifacts, "encoded_lossless.mp4"), lossless: true);
+            await StitchVideo("frame_%04d.png", Path.Join(_artifacts, "reference_lossless.mp4"), lossless: true);
 
-            /* var vmafJson = await RunVmaf(
+            var vmafJson = await RunVmaf(
                 Path.Join(_artifacts, "reference_lossless.mp4"),
                 Path.Join(_artifacts, "encoded_lossless.mp4"));
-            PrintVmafSummary(vmafJson);*/
+            PrintVmafSummary(vmafJson);
             
-            var uncompressedSize = encoder.BufferSize().Item1 * encoder.BufferSize().Item2 * 3;
-            var averageFrameSize = totalBytes / frameFiles.Length;
-            var bpp = totalBytes * 8.0 / (encoder.BufferSize().Item1 * encoder.BufferSize().Item2 * frameFiles.Length);
-            
-            // Console.WriteLine($"- Video stream total size: {totalBytes/1024} kb");
-            // Console.WriteLine($"- Average frame size: {averageFrameSize/1024} kb");
-            // Console.WriteLine($"- Average compression:  {Math.Round(averageFrameSize*10000.0/uncompressedSize)/100.0}%");
-            Console.WriteLine($"- Bits per pixel: {bpp:F3}");
 
             var grc = (GolombRiceCoder)config.Coder;
             Console.WriteLine($"- Codec: UVDownsample={config.UVDownsample} Quality={config.Quality} BlockSize={config.BlockSize} GolombM={grc.GolombM} GolombZM={grc.GolombZM}");
@@ -207,7 +206,7 @@ public class SoftwareEncoderIntegrationTest
         var vf = $"fps=60,scale=iw/{scaleDiv}:ih/{scaleDiv}";
         if (blockSize > 0)
             vf += $",crop=iw-mod(iw\\,{blockSize}):ih-mod(ih\\,{blockSize}):0:0";
-        await Cli.Wrap(ffmpeg)
+        await Ffmpeg.Run
             .WithArguments([
                 "-y", "-i", inputVideo, "-vf", vf, "-vframes", $"{maxFrames}",
                 Path.Join(_artifacts, "frame_%04d.png")
@@ -227,7 +226,7 @@ public class SoftwareEncoderIntegrationTest
             ? new[] { "-c:v", "ffv1" }
             : new[] { "-c:v", "libx264", "-crf", "18" };
 
-        await Cli.Wrap(ffmpeg)
+        await Ffmpeg.Run
             .WithArguments(["-y", "-framerate", "60", "-i", Path.Join(_artifacts, inputPattern), ..codecArgs, "-pix_fmt", "yuv420p", outputVideo])
             .WithValidation(CommandResultValidation.ZeroExitCode)
             .ExecuteAsync();
@@ -237,7 +236,7 @@ public class SoftwareEncoderIntegrationTest
     async Task<string> RunVmaf(string refVideo, string encVideo)
     {
         var jsonPath = Path.Join(_artifacts, "vmaf.json");
-        await Cli.Wrap(ffmpeg)
+        await Ffmpeg.Run
             .WithArguments([
                 "-y", "-i", encVideo, "-i", refVideo,
                 "-lavfi", $"libvmaf=log_path={jsonPath}:log_fmt=json:n_threads=4",

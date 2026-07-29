@@ -4,7 +4,7 @@ public struct MotionEstimate
 {
     public int X { get; set; }
     public int Y { get; set; }
-    public int Error { get; set; }
+    public float Error { get; set; }
 }
 
 public interface IBlockMotionEstimator

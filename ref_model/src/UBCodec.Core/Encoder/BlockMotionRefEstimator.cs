@@ -1,12 +1,11 @@
 namespace UBCodec.Core.Encoder;
 
-public class BlockMotionEstimatorReference() : IBlockMotionEstimator
+public class BlockMotionRefEstimator() : IBlockMotionEstimator
 {
     public MotionEstimate EstimateMotion(byte[,] block, byte[,] blockPrev)
     {
         var padding = (blockPrev.GetLength(0) - block.GetLength(0)) / 2;
         var D = padding;
-        
         var blockSize = block.GetLength(0);
         
         var errorBest = 99999;
@@ -23,7 +22,7 @@ public class BlockMotionEstimatorReference() : IBlockMotionEstimator
                 {
                     for (var x = 0; x < blockSize; x++)
                     {
-                        if (x % 2 > 0 || y % 2 > 0) continue;
+                        // if (x % 2 > 0 || y % 2 > 0) continue;
                         var curr = block[x, y];
                         var prev = blockPrev[x + dx + D, y + dy + D];
                         error += Math.Abs(curr - prev);

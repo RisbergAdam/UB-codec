@@ -18,6 +18,8 @@ public class CodecConfig
     public ICoder Coder { get; set; }
 
     public int UVDownsample { get; set; } = 2;
+    
+    public bool EstimateMotion { get;  set; } = true;
 }
 
 public class EncoderCore(CodecConfig config)
@@ -62,7 +64,7 @@ public class EncoderCore(CodecConfig config)
         { 61, 55, 56, 56, 56, 56, 56, 56 },
     };
     
-    public void LoadBlock(YCoCgBuffer prev, YCoCgBuffer curr, Rectangle region)
+    public void LoadBlock(PlanarImage prev, PlanarImage curr, Rectangle region)
     {
         _region = region;
         _rows = curr.Height / _region.Height;
@@ -89,7 +91,7 @@ public class EncoderCore(CodecConfig config)
         {
             var sx = region.X + x;
             var sy = region.Y + y;
-            _YBuffer[x, y] = curr.GetY(sx, sy);
+            _YBuffer[x, y] = curr.LetL(sx, sy);
         }
 
         for (var y = 0; y < blockSize / D; y++)
@@ -97,8 +99,8 @@ public class EncoderCore(CodecConfig config)
         {
             var sx = region.X / D + x;
             var sy = region.Y / D + y;
-            _CoBuffer[x, y] = curr.GetCo(sx, sy);
-            _CgBuffer[x, y] = curr.GetCg(sx, sy);
+            _CoBuffer[x, y] = curr.GetC1(sx, sy);
+            _CgBuffer[x, y] = curr.GetC2(sx, sy);
         }
         
         for (var y = 0; y < searchWindowSize; y++)
@@ -106,7 +108,7 @@ public class EncoderCore(CodecConfig config)
         {
             var sx = region.X - config.ReferenceBlockPadding + x;
             var sy = region.Y - config.ReferenceBlockPadding + y;
-            _YBufferPrev[x, y] = prev.GetY(sx, sy);
+            _YBufferPrev[x, y] = prev.LetL(sx, sy);
         }
 
         for (var y = 0; y < searchWindowSize / D; y++)
@@ -114,8 +116,8 @@ public class EncoderCore(CodecConfig config)
         {
             var sx = (region.X - config.ReferenceBlockPadding) / D + x;
             var sy = (region.Y - config.ReferenceBlockPadding) / D + y;
-            _CoBufferPrev[x, y] = prev.GetCo(sx, sy);
-            _CgBufferPrev[x, y] = prev.GetCg(sx, sy);
+            _CoBufferPrev[x, y] = prev.GetC1(sx, sy);
+            _CgBufferPrev[x, y] = prev.GetC2(sx, sy);
         }
     }
 
@@ -129,8 +131,11 @@ public class EncoderCore(CodecConfig config)
     
     public void Encode(ByteStreamWriter byteStream, int frameSeq)
     {
-        
-        var blockMotion = config.MotionEstimator.EstimateMotion(_YBuffer, _YBufferPrev);
+        Console.WriteLine($"==== Starting Encode {frameSeq} ====");
+        var blockMotion = config.EstimateMotion
+            ? config.MotionEstimator.EstimateMotion(_YBuffer, _YBufferPrev)
+            : new MotionEstimate();
+        // Console.WriteLine($"block motion for {_region.X} {_region.Y}: {blockMotion.X} {blockMotion.Y} error {blockMotion.Error}");
         var intraRefresh = IsIntraRefresh(frameSeq);
         
         byteStream.SetRegion("BLOCK_HEADER");
@@ -141,6 +146,7 @@ public class EncoderCore(CodecConfig config)
         config.DCT.TransformForward(config.BlockSize, _workmem1, output: _workmem2);
         QuantizeCoefficients(config.BlockSize, _workmem2, intraRefresh, false);
         byteStream.SetRegion("BLOCK_DATA_Y");
+        Console.WriteLine("Coding Y");
         config.Coder.Encode(config.BlockSize, _workmem2, output: byteStream);
         
         
@@ -149,6 +155,7 @@ public class EncoderCore(CodecConfig config)
         config.DCT.TransformForward(config.BlockSize/config.UVDownsample, _workmem1, output: _workmem2);
         QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true);
         byteStream.SetRegion("BLOCK_DATA_CO");
+        Console.WriteLine("Coding Co");
         config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: byteStream);
         
         
@@ -157,11 +164,12 @@ public class EncoderCore(CodecConfig config)
         config.DCT.TransformForward(config.BlockSize/config.UVDownsample, _workmem1, output: _workmem2);
         QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true);
         byteStream.SetRegion("BLOCK_DATA_CG");
+        Console.WriteLine("Coding Cg");
         config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: byteStream);
         
     }
 
-    public void Decode(ByteStreamReader byteStream, YCoCgBuffer prev, YCoCgBuffer curr, int frameSeq)
+    public void Decode(ByteStreamReader byteStream, PlanarImage prev, PlanarImage curr, int frameSeq)
     {
         var (region, blockMotion) = ReadBlockHeader(byteStream);
         LoadBlock(prev, curr, region);
@@ -188,7 +196,7 @@ public class EncoderCore(CodecConfig config)
         StoreBlock(curr);
     }
 
-    private void StoreBlock(YCoCgBuffer target)
+    private void StoreBlock(PlanarImage target)
     {
         var D = config.UVDownsample;
 
@@ -197,7 +205,15 @@ public class EncoderCore(CodecConfig config)
         {
             var sx = x + _region.X;
             var sy = y + _region.Y;
-            target.YBuffer[sx, sy] = _YBuffer[x, y];
+            try
+            {
+
+                target.LBuffer[sx, sy] = _YBuffer[x, y];
+            }
+            catch (Exception e)
+            {
+                    throw;
+                }
         }
 
         for (var y = 0; y < config.BlockSize / D; y++)
@@ -205,16 +221,20 @@ public class EncoderCore(CodecConfig config)
         {
             var sx = x + _region.X / D;
             var sy = y + _region.Y / D;
-            target.CoBuffer[sx, sy] = _CoBuffer[x, y];
-            target.CgBuffer[sx, sy] = _CgBuffer[x, y];
+            target.C1Buffer[sx, sy] = _CoBuffer[x, y];
+            target.C2Buffer[sx, sy] = _CgBuffer[x, y];
         }
     }
 
-    private void WriteBlockHeader(ByteStreamWriter stream, MotionEstimate _)
+    private void WriteBlockHeader(ByteStreamWriter stream, MotionEstimate me)
     {
         stream
             .WriteUInt8((byte)(_region.X / config.BlockSize))
             .WriteUInt8((byte)(_region.Y / config.BlockSize));
+        if (config.EstimateMotion)
+            stream
+                .WriteUInt8((byte)(me.X + 127))
+                .WriteUInt8((byte)(me.Y + 127));
     }
 
     private (Rectangle, MotionEstimate) ReadBlockHeader(ByteStreamReader reader)
@@ -226,11 +246,13 @@ public class EncoderCore(CodecConfig config)
                 config.BlockSize,
                 config.BlockSize
             ),
-            new MotionEstimate
-            {
-                X = 0,
-                Y = 0
-            }
+            config.EstimateMotion
+                ? new MotionEstimate
+                {
+                    X = reader.ReadUInt8() - 127,
+                    Y = reader.ReadUInt8() - 127
+                }
+                : new MotionEstimate()
         );
     }
 
@@ -252,7 +274,7 @@ public class EncoderCore(CodecConfig config)
             {
                 var currValue =  block[x, y];
                 var prevValue = blockPrev[x + xOffset, y + yOffset];
-                var residual = currValue - (prevValue - (prevValue >> 2));
+                var residual = currValue - prevValue;
                 output[x, y] = (byte) Math.Clamp(residual + 127, 0, 255);
             }
         }
@@ -276,7 +298,7 @@ public class EncoderCore(CodecConfig config)
             {
                 var prevValue = blockPrev[x + xOffset, y + yOffset];
                 var residual = _workmem1[x, y] - 127;
-                var currValue = residual + (prevValue - (prevValue >> 2));
+                var currValue = residual + (prevValue);
                 block[x, y] = (byte) Math.Clamp(currValue, 0, 255);
             }
         }
@@ -284,10 +306,9 @@ public class EncoderCore(CodecConfig config)
     
     private void QuantizeCoefficients(int blockSize, int[,] workmem, bool intraRefresh, bool isChroma, bool inverse = false)
     {
-        var Q = intraRefresh ? QIntra : QInter;
-        var multiplier = intraRefresh
-            ? isChroma ? 6 : 2
-            : 7; 
+        // var Q = intraRefresh ? QIntra : QInter;
+        var Q = QIntra;
+        var multiplier = isChroma ? 8 : 8;
         
         var subBlocks = blockSize / 8;
         
@@ -306,6 +327,10 @@ public class EncoderCore(CodecConfig config)
                 else
                 {
                     workmem[x + 8*xb, y + 8*yb] /= q;
+                    if (Math.Abs(workmem[x + 8 * xb, y + 8 * yb]) <= 1)
+                    {
+                        workmem[x + 8 * xb, y + 8 * yb] = 0;
+                    }
                 }
             }
         }

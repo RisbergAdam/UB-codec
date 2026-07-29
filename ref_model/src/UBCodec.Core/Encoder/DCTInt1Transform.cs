@@ -43,23 +43,7 @@ public class DctInt1Transform : ITransform
             MT[x, y] = M[y, x];
         }
     }
-
-    public int[,] Transform(int[,] input)
-    {
-        var blockSize = input.GetLength(0);
-        var binput = new byte[blockSize, blockSize];
-        
-        for (var y = 0; y < blockSize; y++)
-        for (var x = 0; x < blockSize; x++)
-        {
-            binput[x, y] = (byte) input[x, y];
-        }
-        
-        var output = new int[8, 8];
-        TransformForward(blockSize, binput, output);
-        return output;
-    }
-
+    
     public void TransformForward(int blockSize, byte[,] input, int[,] output)
     {
         var subBlocks = blockSize / 8;

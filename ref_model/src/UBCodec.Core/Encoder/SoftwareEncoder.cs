@@ -10,7 +10,7 @@ public class SoftwareEncoder(CodecConfig config)
     
     private EncoderCore _core = new(config);
     
-    public byte[] EncodeFrame(YCoCgBuffer prev, YCoCgBuffer curr, int frameSeq)
+    public byte[] EncodeFrame(PlanarImage prev, PlanarImage curr, int frameSeq)
     {
         var byteStream = new ByteStreamWriter();
         byteStream.SetRegion("HEADER");
@@ -30,12 +30,14 @@ public class SoftwareEncoder(CodecConfig config)
                 config.BlockSize);
             _core.LoadBlock(prev, curr, region);
             _core.Encode(byteStream, frameSeq);
+            byteStream.PrintStatistics();
+            byteStream.ResetStatistics();
         }
         
         var bytes = byteStream.GetArray();
         
         // Console.WriteLine($"Encoded {xBlocks*yBlocks} blocks into {bytes.Length / 1024} kb");
-        // byteStream.PrintStatistics();
+        
         return bytes;
     }
 
@@ -47,7 +49,7 @@ public class SoftwareEncoder(CodecConfig config)
         return (frameSeq, width, height);
     }
 
-    public void DecodeFrame(YCoCgBuffer prev, YCoCgBuffer curr, byte[] encoded)
+    public void DecodeFrame(PlanarImage prev, PlanarImage curr, byte[] encoded)
     {
         var byteStream = new ByteStreamReader(encoded);
         var (frameSeq, width, height) = DecodeHeader(byteStream);

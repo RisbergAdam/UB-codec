@@ -1,26 +1,29 @@
 using SkiaSharp;
+using UBCodec.Core.Encoder.ColorSpace;
 
 namespace UBCodec.Core.Encoder;
 
-public class YCoCgBuffer
+public class PlanarImage
 {
-    public byte[,] YBuffer;
-    public byte[,] CoBuffer;
-    public byte[,] CgBuffer;
+    public byte[,] LBuffer; // Luma buffer
+    public byte[,] C1Buffer; // Chroma-1 buffer
+    public byte[,] C2Buffer; // Chroma-2 buffer
 
     public int Width, Height;
 
     public int ChromaDownsample = 2;
 
-    public static YCoCgBuffer FromSize(int width, int height, int D)
+    private static IColorSpace _CP = new YCbCrColorSpace();
+
+    public static PlanarImage FromSize(int width, int height, int D = 1)
     {
         var chromaWidth = width / D;
         var chromaHeight = height / D;
-        var buffer = new YCoCgBuffer
+        var buffer = new PlanarImage
         {
-            YBuffer = new byte[width, height],
-            CoBuffer = new byte[chromaWidth, chromaHeight],
-            CgBuffer = new byte[chromaWidth, chromaHeight],
+            LBuffer = new byte[width, height],
+            C1Buffer = new byte[chromaWidth, chromaHeight],
+            C2Buffer = new byte[chromaWidth, chromaHeight],
             Width = width,
             Height = height,
             ChromaDownsample = D,
@@ -28,17 +31,17 @@ public class YCoCgBuffer
         return buffer;
     }
 
-    public static YCoCgBuffer FromBitmap(SKBitmap bitmap, int D)
+    public static PlanarImage FromBitmap(SKBitmap bitmap, int D = 1)
     {
         var width = bitmap.Width;
         var height = bitmap.Height;
         var chromaWidth = width / D;
         var chromaHeight = height / D;
-        var buffer = new YCoCgBuffer
+        var buffer = new PlanarImage
         {
-            YBuffer = new byte[width, height],
-            CoBuffer = new byte[chromaWidth, chromaHeight],
-            CgBuffer = new byte[chromaWidth, chromaHeight],
+            LBuffer = new byte[width, height],
+            C1Buffer = new byte[chromaWidth, chromaHeight],
+            C2Buffer = new byte[chromaWidth, chromaHeight],
             Width = width,
             Height = height,
             ChromaDownsample = D,
@@ -72,8 +75,8 @@ public class YCoCgBuffer
                 for (var x = 0; x < width; x++)
                 {
                     var px = row + x * bytesPerPixel;
-                    var (Y, _, _) = ToYCoCg(px[rOff], px[gOff], px[bOff]);
-                    buffer.YBuffer[x, y] = Y;
+                    var (Y, _, _) = _CP.ToSpace(px[rOff], px[gOff], px[bOff]);
+                    buffer.LBuffer[x, y] = Y;
                 }
             }
 
@@ -91,12 +94,12 @@ public class YCoCgBuffer
                     var x = cx * D + dx;
                     var y = cy * D + dy;
                     var px = basePtr + y * rowBytes + x * bytesPerPixel;
-                    var (_, Co, Cg) = ToYCoCg(px[rOff], px[gOff], px[bOff]);
+                    var (_, Co, Cg) = _CP.ToSpace(px[rOff], px[gOff], px[bOff]);
                     coSum += Co;
                     cgSum += Cg;
                 }
-                buffer.CoBuffer[cx, cy] = (byte)((coSum + half) / div);
-                buffer.CgBuffer[cx, cy] = (byte)((cgSum + half) / div);
+                buffer.C1Buffer[cx, cy] = (byte)((coSum + half) / div);
+                buffer.C2Buffer[cx, cy] = (byte)((cgSum + half) / div);
             }
         }
 
@@ -117,11 +120,11 @@ public class YCoCgBuffer
                 var row = basePtr + y * rowBytes;
                 for (var x = 0; x < Width; x++)
                 {
-                    byte Y = YBuffer[x, y];
-                    byte Co = CoBuffer[x / ChromaDownsample, y / ChromaDownsample];
-                    byte Cg = CgBuffer[x / ChromaDownsample, y / ChromaDownsample];
+                    byte l = LBuffer[x, y];
+                    byte c1 = C1Buffer[x / ChromaDownsample, y / ChromaDownsample];
+                    byte c2 = C2Buffer[x / ChromaDownsample, y / ChromaDownsample];
 
-                    var (r, g, b) = FromYCoCg(Y, Co, Cg);
+                    var (r, g, b) = _CP.FromSpace(l, c1, c2);
 
                     var px = row + x * bytesPerPixel;
                     px[0] = r; px[1] = g; px[2] = b;
@@ -133,41 +136,24 @@ public class YCoCgBuffer
         return image;
     }
     
-    public static (byte, byte, byte) ToYCoCg(byte r, byte g, byte b)
-    {
-        byte Y = (byte) (((r+b) >> 2) + (g >> 1));
-        byte Co = (byte) (((r-b) >> 1) + 127);
-        byte Cg = (byte) ((g >> 1) - ((r+b) >> 2) + 127);
-        
-        return (Y, Co, Cg);
-    }
-    
-    public static (byte, byte, byte) FromYCoCg(byte Y, byte Co, byte Cg)
-    {
-        byte r = (byte) Math.Clamp(Y + Co - Cg, 0, 255);
-        byte g = (byte) Math.Clamp(Y + (Cg - 127), 0, 255);
-        byte b = (byte) Math.Clamp(Y - Co - Cg + 254, 0, 255);
-        return (r, g, b);
-    }
-
-    public byte GetY(int x, int y)
+    public byte LetL(int x, int y)
     {
         x = Math.Clamp(x, 0, Width-1);
         y = Math.Clamp(y, 0, Height-1);
-        return YBuffer[x, y];
+        return LBuffer[x, y];
     }
     
-    public byte GetCo(int x, int y)
+    public byte GetC1(int x, int y)
     {
         x = Math.Clamp(x, 0, Width/ChromaDownsample-1);
         y = Math.Clamp(y, 0, Height/ChromaDownsample-1);
-        return CoBuffer[x, y];
+        return C1Buffer[x, y];
     }
     
-    public byte GetCg(int x, int y)
+    public byte GetC2(int x, int y)
     {
         x = Math.Clamp(x, 0, Width/ChromaDownsample-1);
         y = Math.Clamp(y, 0, Height/ChromaDownsample-1);
-        return CgBuffer[x, y];
+        return C2Buffer[x, y];
     }
 }
