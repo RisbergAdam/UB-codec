@@ -194,4 +194,141 @@ public class GolombRiceCoderTest
             Assert.That(output[x, y], Is.EqualTo(data1[x, y]));
         }
     }
+
+    [Test]
+    public void AllZeroMode()
+    {
+        int[,] data =
+        {
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+        };
+
+        var coder = new GolombRiceCoder();
+        var stream = new ByteStreamWriter();
+        stream.SetRegion("coder");
+        coder.Encode(8, data, stream);
+
+        var output = new int[8, 8];
+        coder.Decode(8, new ByteStreamReader(stream.GetArray()), output);
+
+        for (var y = 0; y < 8; y++)
+        for (var x = 0; x < 8; x++)
+        {
+            Assert.That(output[x, y], Is.EqualTo(0));
+        }
+    }
+
+    [Test]
+    public void MedianModeUniformCoeffs()
+    {
+        // Contiguous non-zero coeffs all = 3, error = 0 → median-mode
+        int[,] data =
+        {
+            { 3,3,3,3,3,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+        };
+
+        var coder = new GolombRiceCoder();
+        var stream = new ByteStreamWriter();
+        stream.SetRegion("coder");
+        coder.Encode(8, data, stream);
+
+        var output = new int[8, 8];
+        coder.Decode(8, new ByteStreamReader(stream.GetArray()), output);
+
+        for (var y = 0; y < 8; y++)
+        for (var x = 0; x < 8; x++)
+        {
+            Assert.That(output[x, y], Is.EqualTo(data[x, y]));
+        }
+    }
+
+    [Test]
+    public void MedianModeLowError()
+    {
+        // Contiguous coeffs, mode = 6, error = |5-6|+|7-6|+|7-6| = 3 ≤ 10 → median-mode
+        // Non-mode coeffs (5,7,7) overwritten to 6
+        int[,] data =
+        {
+            { 6,6,6,5,6,6,7,6 },
+            { 6,7,6,6,6,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+        };
+
+        int[,] expected =
+        {
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+        };
+
+        var coder = new GolombRiceCoder();
+        var stream = new ByteStreamWriter();
+        stream.SetRegion("coder");
+        coder.Encode(8, data, stream);
+
+        var output = new int[8, 8];
+        coder.Decode(8, new ByteStreamReader(stream.GetArray()), output);
+
+        for (var y = 0; y < 8; y++)
+        for (var x = 0; x < 8; x++)
+        {
+            Assert.That(output[x, y], Is.EqualTo(expected[x, y]));
+        }
+    }
+
+    [Test]
+    public void MedianModeHighErrorFallsBackToNormal()
+    {
+        // Contiguous coeffs, mode = 3, add a 20: error = |1-3|+|2-3|+5*|3-3|+|1-3|+|2-3|+|20-3| = 23 > 10 → normal mode
+        int[,] data =
+        {
+            { 1,2,3,3,3,3,3,1 },
+            { 2,20,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+            { 0,0,0,0,0,0,0,0 },
+        };
+
+        var coder = new GolombRiceCoder();
+        var stream = new ByteStreamWriter();
+        stream.SetRegion("coder");
+        coder.Encode(8, data, stream);
+
+        var output = new int[8, 8];
+        coder.Decode(8, new ByteStreamReader(stream.GetArray()), output);
+
+        // Normal mode → exact round-trip
+        for (var y = 0; y < 8; y++)
+        for (var x = 0; x < 8; x++)
+        {
+            Assert.That(output[x, y], Is.EqualTo(data[x, y]));
+        }
+    }
 }

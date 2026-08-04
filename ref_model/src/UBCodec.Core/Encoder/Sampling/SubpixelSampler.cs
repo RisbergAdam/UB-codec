@@ -1,3 +1,4 @@
+using System.Runtime.Intrinsics;
 using UBCodec.Core.Utils;
 
 namespace UBCodec.Core.Encoder.Sampling;
@@ -17,6 +18,21 @@ public class SubpixelSampler
         
         int phaseX = (int)MathF.Round(fracX * 4.0f) & 3;
         int phaseY = (int)MathF.Round(fracY * 4.0f) & 3;
+            
+        if (phaseX == 0 && phaseY == 0)
+        {
+            var fastResult = new byte[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                int clampedY = Clamp(intY + r, width);
+                for (int c = 0; c < size; c++)
+                {
+                    int sampleX = Clamp(intX + c, height);
+                    fastResult[c, r] = input[sampleX, clampedY];
+                }
+            }
+            return fastResult;
+        }
 
         // Adjust integer base if rounding wrapped around (i.e. frac rounded to 1.0)
         intX += (int)MathF.Round(fracX * 4.0f) >> 2;
