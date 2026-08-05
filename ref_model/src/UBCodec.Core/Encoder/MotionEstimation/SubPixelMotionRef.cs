@@ -5,11 +5,13 @@ namespace UBCodec.Core.Encoder.MotionEstimation;
 
 public class SubPixelMotionRef : IMotionEstimator
 {
-    private IntegerMotionRef _imotion = new();
+    private IntegerMotionVec _imotion = new();
     
     public EstimatedMotion Estimate(Span2D<byte> source, Span2D<byte> template)
     {
         var intEstimate = _imotion.Estimate(source, template);
+
+        if (intEstimate.Error <= 3f) return intEstimate;
         
         // compute gradients
         var size = template.Height;
@@ -52,7 +54,7 @@ public class SubPixelMotionRef : IMotionEstimator
         // 2. Compute the determinant of the 2x2 ATA matrix
         float det = (Sxx * Syy) - (Sxy * Sxy);
 
-        if (det < 0.001f)
+        if (det < 0.000001f)
         {
             return intEstimate;
         }
@@ -75,25 +77,6 @@ public class SubPixelMotionRef : IMotionEstimator
             Y = intEstimate.Y + quarterPelY,
         };
 
-        ComputeError(em, source.ToArray(), template.ToArray());
-
         return em;
-    }
-
-    private void ComputeError(EstimatedMotion motion, byte[,] source, byte[,] template)
-    {
-        var size = template.GetLength(0);
-        
-        var template2 = SubpixelSampler.Crop(source, motion.X, motion.Y, size);
-        
-        var error = 0f;
-        
-        for (var y = 0; y < size; y++)
-        for (var x = 0; x < size; x++)
-        {
-            error += Math.Abs(template[x, y] - template2[x, y]);
-        }
-
-        motion.Error = error;
     }
 }

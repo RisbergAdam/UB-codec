@@ -1,4 +1,3 @@
-using System;
 using System.Numerics;
 using CommunityToolkit.HighPerformance;
 
@@ -8,87 +7,88 @@ public class IntegerMotionVec : IMotionEstimator
 {
     public EstimatedMotion Estimate(Span2D<byte> source, Span2D<byte> template)
     {
-        int paddingX = source.Width - template.Width;
-        int paddingY = source.Height - template.Height;
+        // The buffers are byte[width, height] indexed [x, y] with x = first index.
+        // Span2D maps span[a, b] == array[a, b], so the FIRST span index is x.
+        // Keep the same convention as IntegerMotionRef: template(x, y) vs source(x + dx, y + dy).
+        int padX = source.Height - template.Height; // search range for the x (first) index
+        int padY = source.Width - template.Width;   // search range for the y (second) index
         long n = (long)template.Width * template.Height;
 
         long errorBest = long.MaxValue;
         int xBest = 0;
         int yBest = 0;
 
-        if (paddingX < 0 || paddingY < 0)
+        if (padX < 0 || padY < 0)
             return default;
-            
+
         // Vector<byte>.Count will dynamically be 16 on ARM64 (NEON) and 32 on x64 (AVX2)
-        int vecSize = Vector<byte>.Count; 
+        int vecSize = Vector<byte>.Count;
 
-        for (int dy = 0; dy <= paddingY; dy++)
+        for (int dx = 0; dx <= padX; dx++)
+        for (int dy = 0; dy <= padY; dy++)
         {
-            for (int dx = 0; dx <= paddingX; dx++)
+            long sad = 0;
+
+            // The first array index is x; the second index (y) is contiguous in memory,
+            // so GetRowSpan(x + dx) is the vertical line at x + dx and we slide along y.
+            for (int x = 0; x < template.Height; x++)
             {
-                long sad = 0;
+                ReadOnlySpan<byte> srcCol = source.GetRowSpan(x + dx);
+                ReadOnlySpan<byte> tmpCol = template.GetRowSpan(x);
 
-                for (int y = 0; y < template.Height; y++)
+                int y = 0;
+                int height = template.Width;
+
+                // Unified Hardware-Accelerated SIMD loop
+                if (Vector.IsHardwareAccelerated && height >= vecSize)
                 {
-                    ReadOnlySpan<byte> srcRow = source.GetRowSpan(y + dy);
-                    ReadOnlySpan<byte> tmpRow = template.GetRowSpan(y);
+                    // Accumulate into ushorts to prevent byte overflow (max 255)
+                    Vector<ushort> acc = Vector<ushort>.Zero;
 
-                    int x = 0;
-                    int width = template.Width;
-
-                    // Unified Hardware-Accelerated SIMD loop
-                    if (Vector.IsHardwareAccelerated && width >= vecSize)
+                    for (; y <= height - vecSize; y += vecSize)
                     {
-                        // Accumulate into ushorts to prevent byte overflow (max 255)
-                        Vector<ushort> acc = Vector<ushort>.Zero;
+                        // Slice to the current offset, the JIT converts this directly into unaligned vector loads (vld1q_u8 / vmovdqu)
+                        var vSrc = new Vector<byte>(srcCol.Slice(y + dy));
+                        var vTmp = new Vector<byte>(tmpCol.Slice(y));
 
-                        for (; x <= width - vecSize; x += vecSize)
-                        {
-                            // Slice to the current offset, the JIT converts this directly into unaligned vector loads (vld1q_u8 / vmovdqu)
-                            var vSrc = new Vector<byte>(srcRow.Slice(x + dx));
-                            var vTmp = new Vector<byte>(tmpRow.Slice(x));
+                        // Cross-platform Absolute Difference trick for unsigned bytes: Max(a, b) - Min(a, b)
+                        var max = Vector.Max(vSrc, vTmp);
+                        var min = Vector.Min(vSrc, vTmp);
+                        var diff = Vector.Subtract(max, min);
 
-                            // Cross-platform Absolute Difference trick for unsigned bytes: Max(a, b) - Min(a, b)
-                            var max = Vector.Max(vSrc, vTmp);
-                            var min = Vector.Min(vSrc, vTmp);
-                            var diff = Vector.Subtract(max, min);
+                        // Widen the 8-bit differences into 16-bit to safely add them up
+                        Vector.Widen(diff, out Vector<ushort> diffLow, out Vector<ushort> diffHigh);
 
-                            // Widen the 8-bit differences into 16-bit to safely add them up
-                            Vector.Widen(diff, out Vector<ushort> diffLow, out Vector<ushort> diffHigh);
-                            
-                            acc = Vector.Add(acc, diffLow);
-                            acc = Vector.Add(acc, diffHigh);
-                        }
-                        
-                        sad += Vector.Sum(acc);
+                        acc = Vector.Add(acc, diffLow);
+                        acc = Vector.Add(acc, diffHigh);
                     }
 
-                    // Scalar fallback handles remaining pixels (e.g., if width is not a multiple of the vector size)
-                    for (; x < width; x++)
-                    {
-                        sad += Math.Abs(tmpRow[x] - srcRow[x + dx]);
-                    }
-
-                    // Early termination: HUGE speed boost.
-                    // If this block is already worse than our best, bail out immediately.
-                    if (sad >= errorBest)
-                    {
-                        break;
-                    }
+                    sad += Vector.Sum(acc);
                 }
 
-                if (sad < errorBest)
+                // Scalar fallback handles remaining pixels (e.g., if height is not a multiple of the vector size)
+                for (; y < height; y++)
                 {
-                    errorBest = sad;
-                    xBest = dx;
-                    yBest = dy;
+                    sad += Math.Abs(tmpCol[y] - srcCol[y + dy]);
                 }
+
+                if (sad >= errorBest)
+                {
+                    break;
+                }
+            }
+
+            if (sad < errorBest)
+            {
+                errorBest = sad;
+                xBest = dx;
+                yBest = dy;
             }
         }
 
         return new EstimatedMotion {
-            X = yBest,
-            Y = xBest,
+            X = xBest,
+            Y = yBest,
             Error = (float)errorBest / n
         };
     }

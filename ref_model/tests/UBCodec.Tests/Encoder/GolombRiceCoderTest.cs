@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using UBCodec.Core.Encoder;
+using UBCodec.Core.Utils;
 
 namespace UBCodec.Tests.Encoder;
 
@@ -34,9 +35,8 @@ public class GolombRiceCoderTest
         sw.Start();
         for (var i = 0; i < 10000; i++)
         {
-            var stream = new ByteStreamWriter();
-            stream.SetRegion("perf");
-            coder.Encode(16, data1, stream);
+            var bits = new BitList();
+            coder.Encode(16, data1, bits);
         }
         sw.Stop();
         Console.WriteLine($"Encoded in {sw.ElapsedMilliseconds} ms");
@@ -125,15 +125,14 @@ public class GolombRiceCoderTest
                 GolombM = p1,
                 GolombZM = p2
             };
-            var stream = new ByteStreamWriter();
-            stream.SetRegion("coder");
-            coder.Encode(blockSize, data1, stream);
+            var bits = new BitList();
+            coder.Encode(blockSize, data1, bits);
 
-            var encodedBytes = stream.GetArray().Length;
-            results.Add((encodedBytes, p1, p2));
+            var encodedBits = bits.Count;
+            results.Add((encodedBits, p1, p2));
             
             var output = new int[blockSize, blockSize];
-            coder.Decode(blockSize, new ByteStreamReader(stream.GetArray()), output);
+            coder.Decode(blockSize, bits, output);
             
             for (var y = 0; y < blockSize; y++)
             for (var x = 0; x < blockSize; x++)
@@ -148,15 +147,6 @@ public class GolombRiceCoderTest
         {
             Console.WriteLine($"Params: GolombM {p1} GolombZM {p2} size: {size}");
         }
-        
-        /*var output = new int[blockSize, blockSize];
-        coder.Decode(blockSize, new ByteStreamReader(stream.GetArray()), output);
-        
-        for (var y = 0; y < blockSize; y++)
-        for (var x = 0; x < blockSize; x++)
-        {
-            Assert.That(output[x, y], Is.EqualTo(data1[x, y]));
-        }*/
     }
     
     [Test]
@@ -179,14 +169,13 @@ public class GolombRiceCoderTest
         {
             GolombM = 32
         };
-        var stream = new ByteStreamWriter();
-        stream.SetRegion("coder");
-        coder.Encode(8, data1, stream);
+        var bits = new BitList();
+        coder.Encode(8, data1, bits);
 
-        var encodedBytes = stream.GetArray().Length;
+        var encodedBits = bits.Count;
         
         var output = new int[8, 8];
-        coder.Decode(8, new ByteStreamReader(stream.GetArray()), output);
+        coder.Decode(8, bits, output);
         
         for (var y = 0; y < 8; y++)
         for (var x = 0; x < 8; x++)
@@ -211,12 +200,11 @@ public class GolombRiceCoderTest
         };
 
         var coder = new GolombRiceCoder();
-        var stream = new ByteStreamWriter();
-        stream.SetRegion("coder");
-        coder.Encode(8, data, stream);
+        var bits = new BitList();
+        coder.Encode(8, data, bits);
 
         var output = new int[8, 8];
-        coder.Decode(8, new ByteStreamReader(stream.GetArray()), output);
+        coder.Decode(8, bits, output);
 
         for (var y = 0; y < 8; y++)
         for (var x = 0; x < 8; x++)
@@ -228,13 +216,14 @@ public class GolombRiceCoderTest
     [Test]
     public void MedianModeUniformCoeffs()
     {
-        // Contiguous non-zero coeffs all = 3, error = 0 → median-mode
+        // Fully-dense block (no zero-runs in the column-major scan) with a single
+        // repeated non-zero value → median-mode, error = 0.
         int[,] data =
         {
-            { 3,3,3,3,3,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
+            { 44,0,0,0,0,0,0,0 },
+            { 44,0,0,0,0,0,0,0 },
+            { 44,0,0,0,0,0,0,0 },
+            { 44,0,0,0,0,0,0,0 },
             { 0,0,0,0,0,0,0,0 },
             { 0,0,0,0,0,0,0,0 },
             { 0,0,0,0,0,0,0,0 },
@@ -242,12 +231,12 @@ public class GolombRiceCoderTest
         };
 
         var coder = new GolombRiceCoder();
-        var stream = new ByteStreamWriter();
-        stream.SetRegion("coder");
-        coder.Encode(8, data, stream);
+        var bits = new BitList();
+        coder.Encode(8, data, bits);
+        Console.WriteLine($"Coded bits: {bits.Count}");
 
         var output = new int[8, 8];
-        coder.Decode(8, new ByteStreamReader(stream.GetArray()), output);
+        coder.Decode(8, bits, output);
 
         for (var y = 0; y < 8; y++)
         for (var x = 0; x < 8; x++)
@@ -259,39 +248,39 @@ public class GolombRiceCoderTest
     [Test]
     public void MedianModeLowError()
     {
-        // Contiguous coeffs, mode = 6, error = |5-6|+|7-6|+|7-6| = 3 ≤ 10 → median-mode
-        // Non-mode coeffs (5,7,7) overwritten to 6
+        // Fully-dense block (no zero-runs in the column-major scan), mode = 6,
+        // with two small outliers: error = |5-6|+|7-6| = 2 ≤ 10 → median-mode.
+        // Non-mode coeffs (5,7) overwritten to 6.
         int[,] data =
         {
-            { 6,6,6,5,6,6,7,6 },
-            { 6,7,6,6,6,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
+            { 5,6,6,6,6,6,6,6 },
+            { 6,7,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
         };
 
         int[,] expected =
         {
             { 6,6,6,6,6,6,6,6 },
-            { 6,6,6,6,6,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
-            { 0,0,0,0,0,0,0,0 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
+            { 6,6,6,6,6,6,6,6 },
         };
 
         var coder = new GolombRiceCoder();
-        var stream = new ByteStreamWriter();
-        stream.SetRegion("coder");
-        coder.Encode(8, data, stream);
+        var bits = new BitList();
+        coder.Encode(8, data, bits);
 
         var output = new int[8, 8];
-        coder.Decode(8, new ByteStreamReader(stream.GetArray()), output);
+        coder.Decode(8, bits, output);
 
         for (var y = 0; y < 8; y++)
         for (var x = 0; x < 8; x++)
@@ -317,18 +306,56 @@ public class GolombRiceCoderTest
         };
 
         var coder = new GolombRiceCoder();
-        var stream = new ByteStreamWriter();
-        stream.SetRegion("coder");
-        coder.Encode(8, data, stream);
+        var bits = new BitList();
+        coder.Encode(8, data, bits);
 
         var output = new int[8, 8];
-        coder.Decode(8, new ByteStreamReader(stream.GetArray()), output);
+        coder.Decode(8, bits, output);
 
         // Normal mode → exact round-trip
         for (var y = 0; y < 8; y++)
         for (var x = 0; x < 8; x++)
         {
             Assert.That(output[x, y], Is.EqualTo(data[x, y]));
+        }
+    }
+
+    [Test]
+    public void ComplexTest()
+    {
+        int[,] data =
+        {
+            {  4, 0, 2, 0, 0, 0, 0, 0, -2, 9,  0, 0, 0, 0, 0, 0 },
+            {  0, 3, 0, 0, 0, 0, 0, 0, -7,-3, -3, 0, 0, 0, 0, 0 },
+            {  0, 4, 0, 0,-2, 0, 0, 0,  0, 0, -2, 2, 0, 0, 0, 0 },
+            {  0, 0, 0, 0, 0, 0, 0, 0,  0, 2,  0, 0, 0, 0, 0, 0 },
+            {  0, 0, 0, 0, 0, 0, 0, 0,  0, 0,  0, 0, 0, 0, 0, 0 },
+            {  0, 0, 0, 0, 0, 0, 0, 0,  0, 0,  0, 0, 0, 0, 0, 0 },
+            {  0, 0, 0, 0, 0, 0, 0, 0,  0, 0,  0, 0, 0, 0, 0, 0 },
+            {  0, 0, 0, 0, 0, 0, 0, 0,  0, 0,  0, 0, 0, 0, 0, 0 },
+            {  4, 0, 0, 0, 0, 0, 0, 0,  2, 0, -2, 0, 0, 0, 0, 0 },
+            { -8,-2, 0, 0, 0, 0, 0, 0,  6, 0,  3, 0, 0, 0, 0, 0 },
+            {  0, 0, 0,-2, 0, 0, 0, 0,  3, 2,  3,-2, 0, 0, 0, 0 },
+            {  0, 0, 0, 0, 0, 0, 0, 0,  0, 0,  0, 2, 0, 0, 0, 0 },
+            {  0, 0, 0, 0, 0, 0, 0, 0,  0, 0,  0, 0, 0, 0, 0, 0 },
+            {  0, 0, 0, 0, 0, 0, 0, 0,  0, 0,  0, 0, 0, 0, 0, 0 },
+            {  0, 0, 0, 0, 0, 0, 0, 0,  0, 0,  0, 0, 0, 0, 0, 0 },
+            {  0, 0, 0, 0, 0, 0, 0, 0,  0, 0,  0, 0, 0, 0, 0, 0 },
+        };
+        
+        foreach (var m in new List<int>([2, 4, 8, 16, 32, 64]))
+        foreach (var zm in new List<int>([2, 4, 8, 16, 32, 64]))
+        {
+            var coder = new GolombRiceCoder()
+            {
+                GolombM = m,
+                GolombZM = zm
+            };
+            
+            var bits = new BitList();
+            coder.Encode(8, data, bits);
+            
+            Console.WriteLine($"Test M: {m} ZM: {zm} bites: {bits.Count}");
         }
     }
 }

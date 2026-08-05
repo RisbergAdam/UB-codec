@@ -18,16 +18,19 @@ public class SubpixelSampler
         
         int phaseX = (int)MathF.Round(fracX * 4.0f) & 3;
         int phaseY = (int)MathF.Round(fracY * 4.0f) & 3;
+        
+        // Helper lambda for frame edge-clamping (sample extension)
+        int Clamp(int v, int max) => Math.Clamp(v, 0, max - 1);
             
         if (phaseX == 0 && phaseY == 0)
         {
             var fastResult = new byte[size, size];
             for (int r = 0; r < size; r++)
             {
-                int clampedY = Clamp(intY + r, width);
+                int clampedY = Clamp(intY + r, height);
                 for (int c = 0; c < size; c++)
                 {
-                    int sampleX = Clamp(intX + c, height);
+                    int sampleX = Clamp(intX + c, width);
                     fastResult[c, r] = input[sampleX, clampedY];
                 }
             }
@@ -53,13 +56,10 @@ public class SubpixelSampler
         // Intermediate buffer for 1D horizontal pass: needs 7 extra rows for vertical 8-tap span
         var intermediate = new int[size + 7, size];
 
-        // Helper lambda for frame edge-clamping (sample extension)
-        int Clamp(int v, int max) => Math.Clamp(v, 0, max - 1);
-
         // 2. Horizontal Pass (Filter across rows)
         for (int r = -3; r < size + 4; r++)
         {
-            int clampedY = Clamp(intY + r, width);
+            int clampedY = Clamp(intY + r, height);
             int interRowIdx = r + 3;
 
             for (int c = 0; c < size; c++)
@@ -67,7 +67,7 @@ public class SubpixelSampler
                 int sum = 0;
                 for (int k = 0; k < 8; k++)
                 {
-                    int sampleX = Clamp(intX + c - 3 + k, height);
+                    int sampleX = Clamp(intX + c - 3 + k, width);
                     sum += coeffX[k] * input[sampleX, clampedY];
                 }
                 // Keep internal precision (shift by 2, leaving factor of 16 for vertical pass)

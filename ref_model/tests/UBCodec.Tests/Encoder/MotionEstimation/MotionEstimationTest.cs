@@ -19,7 +19,7 @@ public class MotionEstimationTest
         var smallRegion = SubpixelSampler.Crop(bigRegion, 14.5f, 17f, 32);
         
         var estimator1 = new IntegerMotionRef();
-        var estimator2 = new IntegerMotionVec();
+        var estimator2 = new SubPixelMotionRef();
         
         Console.WriteLine(estimator1.Estimate(bigRegion.LBuffer, smallRegion.LBuffer));
         Console.WriteLine(estimator2.Estimate(bigRegion.LBuffer, smallRegion.LBuffer));
@@ -29,11 +29,11 @@ public class MotionEstimationTest
     public async Task ReferenceTest()
     {
         var frame1 = PlanarImage.FromBitmap(ImageUtils.BlockResize(ImageUtils.ReadPng(await Ffmpeg.ExtractFrameAsync(
-            Path.Join(_root, "resources", "drone.mp4"), 100, 
+            Path.Join(_root, "resources", "drone.mp4"), 0, 
             Path.Join(_root, "artifacts", "frame1.png"))), 32), 1);
 
         var frame2 = PlanarImage.FromBitmap(ImageUtils.BlockResize(ImageUtils.ReadPng(await Ffmpeg.ExtractFrameAsync(
-            Path.Join(_root, "resources", "drone.mp4"), 101,
+            Path.Join(_root, "resources", "drone.mp4"), 1,
             Path.Join(_root, "artifacts", "frame2.png"))), 32), 1);
 
         var xBlocks = frame1.Width / 32;
@@ -42,18 +42,23 @@ public class MotionEstimationTest
         var estimator1 = new IntegerMotionRef();
         var estimator2 = new IntegerMotionVec();
 
-            
-        for (var xb = 1; xb < xBlocks - 1; xb++)
-        for (var yb = 1; yb < yBlocks - 1; yb++)
+
+        void EvaluateBlock(int xb, int yb)
         {
             var bigRegion = SubpixelSampler.Crop(frame1, xb * 32 - 16, yb * 32 - 16, 64);
             var smallRegion = SubpixelSampler.Crop(frame2, xb * 32, yb * 32, 32);
 
             var e1 = estimator1.Estimate(bigRegion.LBuffer, smallRegion.LBuffer);
-            var e2 = estimator2.Estimate(bigRegion.LBuffer, smallRegion.LBuffer);
-            
+            var e2 = estimator1.Estimate(bigRegion.LBuffer, smallRegion.LBuffer);
+
             Assert.That(e2.X, Is.EqualTo(e1.X));
             Assert.That(e2.Y, Is.EqualTo(e1.Y));
+        }
+            
+        for (var xb = 1; xb < xBlocks - 1; xb++)
+        for (var yb = 1; yb < yBlocks - 1; yb++)
+        {
+            EvaluateBlock(xb, yb);
         }
     }
 }

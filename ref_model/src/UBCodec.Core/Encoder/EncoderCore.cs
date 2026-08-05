@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using System.Drawing;
+using UBCodec.Core.Encoder.MotionEstimation;
+using UBCodec.Core.Encoder.Sampling;
+using UBCodec.Core.Utils;
 
 namespace UBCodec.Core.Encoder;
 
@@ -11,7 +14,7 @@ public class CodecConfig
     
     public int ReferenceBlockPadding { get; set; }
 
-    public IBlockMotionEstimator MotionEstimator { get; set; }
+    public IMotionEstimator MotionEstimator { get; set; }
     
     public ITransform DCT { get; set; }
     
@@ -20,6 +23,8 @@ public class CodecConfig
     public int UVDownsample { get; set; } = 2;
     
     public bool EstimateMotion { get;  set; } = true;
+    
+    public bool IntraRefresh { get;  set; } = true;
 }
 
 public class EncoderCore(CodecConfig config)
@@ -123,6 +128,8 @@ public class EncoderCore(CodecConfig config)
 
     private bool IsIntraRefresh(int frameSeq)
     {
+        if (!config.IntraRefresh) return false;
+        
         int colStep = 2;
         var currCol = (_region.X / _region.Width) / colStep;
         var numGroups = (_cols + colStep - 1) / colStep;
@@ -133,40 +140,45 @@ public class EncoderCore(CodecConfig config)
     {
         Console.WriteLine($"==== Starting Encode {frameSeq} ====");
         var blockMotion = config.EstimateMotion
-            ? config.MotionEstimator.EstimateMotion(_YBuffer, _YBufferPrev)
-            : new MotionEstimate();
-        // Console.WriteLine($"block motion for {_region.X} {_region.Y}: {blockMotion.X} {blockMotion.Y} error {blockMotion.Error}");
+            ? config.MotionEstimator.Estimate(_YBufferPrev, _YBuffer)
+            : new EstimatedMotion
+            {
+                X = config.ReferenceBlockPadding,
+                Y = config.ReferenceBlockPadding
+            };
+        Console.WriteLine($"block motion for {_region.X} {_region.Y}: {blockMotion.X} {blockMotion.Y} error {blockMotion.Error}");
         var intraRefresh = IsIntraRefresh(frameSeq);
         
         byteStream.SetRegion("BLOCK_HEADER");
         WriteBlockHeader(byteStream, blockMotion);
+
+        var bitlist = new BitList();
         
         // Y-channel
         ComputeResidual(_YBuffer, _YBufferPrev, 1, blockMotion, output: _workmem1, intraRefresh);
         config.DCT.TransformForward(config.BlockSize, _workmem1, output: _workmem2);
         QuantizeCoefficients(config.BlockSize, _workmem2, intraRefresh, false);
-        byteStream.SetRegion("BLOCK_DATA_Y");
         Console.WriteLine("Coding Y");
-        config.Coder.Encode(config.BlockSize, _workmem2, output: byteStream);
+        config.Coder.Encode(config.BlockSize, _workmem2, output: bitlist);
         
         
         // Co-channel
         ComputeResidual(_CoBuffer, _CoBufferPrev, config.UVDownsample, blockMotion, output: _workmem1, intraRefresh);
         config.DCT.TransformForward(config.BlockSize/config.UVDownsample, _workmem1, output: _workmem2);
         QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true);
-        byteStream.SetRegion("BLOCK_DATA_CO");
         Console.WriteLine("Coding Co");
-        config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: byteStream);
+        config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: bitlist);
         
         
         // Cg-channel
         ComputeResidual(_CgBuffer, _CgBufferPrev, config.UVDownsample, blockMotion, output: _workmem1, intraRefresh);
         config.DCT.TransformForward(config.BlockSize/config.UVDownsample, _workmem1, output: _workmem2);
         QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true);
-        byteStream.SetRegion("BLOCK_DATA_CG");
         Console.WriteLine("Coding Cg");
-        config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: byteStream);
-        
+        config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: bitlist);
+
+        byteStream.SetRegion("BLOCK_DATA");
+        byteStream.WriteBitArray(bitlist.GetArray());
     }
 
     public void Decode(ByteStreamReader byteStream, PlanarImage prev, PlanarImage curr, int frameSeq)
@@ -174,21 +186,23 @@ public class EncoderCore(CodecConfig config)
         var (region, blockMotion) = ReadBlockHeader(byteStream);
         LoadBlock(prev, curr, region);
         var intraRefresh = IsIntraRefresh(frameSeq);
+
+        var bits = BitList.FromArray(byteStream.ReadBitArray());
         
         // Y-channel
-        config.Coder.Decode(config.BlockSize, byteStream, _workmem2);
+        config.Coder.Decode(config.BlockSize, bits, _workmem2);
         QuantizeCoefficients(config.BlockSize, _workmem2, intraRefresh, false, inverse:true);
         config.DCT.TransformInverse(config.BlockSize, _workmem2, output: _workmem1);
         ApplyResidual(_YBufferPrev, _YBuffer, 1, blockMotion, intraRefresh);
         
         // Co-channel
-        config.Coder.Decode(config.BlockSize/config.UVDownsample, byteStream, _workmem2);
+        config.Coder.Decode(config.BlockSize/config.UVDownsample, bits, _workmem2);
         QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true, inverse:true);
         config.DCT.TransformInverse(config.BlockSize/config.UVDownsample, _workmem2, output: _workmem1);
         ApplyResidual(_CoBufferPrev, _CoBuffer, config.UVDownsample, blockMotion, intraRefresh);
         
         // Cg-channel
-        config.Coder.Decode(config.BlockSize/config.UVDownsample, byteStream, _workmem2);
+        config.Coder.Decode(config.BlockSize/config.UVDownsample, bits, _workmem2);
         QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true, inverse:true);
         config.DCT.TransformInverse(config.BlockSize/config.UVDownsample, _workmem2, output: _workmem1);
         ApplyResidual(_CgBufferPrev, _CgBuffer, config.UVDownsample, blockMotion, intraRefresh);
@@ -205,15 +219,7 @@ public class EncoderCore(CodecConfig config)
         {
             var sx = x + _region.X;
             var sy = y + _region.Y;
-            try
-            {
-
-                target.LBuffer[sx, sy] = _YBuffer[x, y];
-            }
-            catch (Exception e)
-            {
-                    throw;
-                }
+            target.LBuffer[sx, sy] = _YBuffer[x, y];
         }
 
         for (var y = 0; y < config.BlockSize / D; y++)
@@ -226,18 +232,18 @@ public class EncoderCore(CodecConfig config)
         }
     }
 
-    private void WriteBlockHeader(ByteStreamWriter stream, MotionEstimate me)
+    private void WriteBlockHeader(ByteStreamWriter stream, EstimatedMotion me)
     {
         stream
             .WriteUInt8((byte)(_region.X / config.BlockSize))
             .WriteUInt8((byte)(_region.Y / config.BlockSize));
         if (config.EstimateMotion)
             stream
-                .WriteUInt8((byte)(me.X + 127))
-                .WriteUInt8((byte)(me.Y + 127));
+                .WriteUInt8((byte)(me.X * 4f + 127))
+                .WriteUInt8((byte)(me.Y * 4f + 127));
     }
 
-    private (Rectangle, MotionEstimate) ReadBlockHeader(ByteStreamReader reader)
+    private (Rectangle, EstimatedMotion) ReadBlockHeader(ByteStreamReader reader)
     {
         return (
             new Rectangle(
@@ -247,45 +253,56 @@ public class EncoderCore(CodecConfig config)
                 config.BlockSize
             ),
             config.EstimateMotion
-                ? new MotionEstimate
+                ? new EstimatedMotion
                 {
-                    X = reader.ReadUInt8() - 127,
-                    Y = reader.ReadUInt8() - 127
+                    X = (reader.ReadUInt8() - 127) / 4f,
+                    Y = (reader.ReadUInt8() - 127) / 4f
                 }
-                : new MotionEstimate()
+                : new EstimatedMotion
+                {
+                    X = config.ReferenceBlockPadding,
+                    Y = config.ReferenceBlockPadding
+                }
         );
     }
 
-    private void ComputeResidual(byte[,] block, byte[,] blockPrev, int downsample, MotionEstimate blockMotion, byte[,] output, bool intraRefresh)
+    private void ComputeResidual(byte[,] block, byte[,] blockPrev, int downsample, EstimatedMotion blockMotion, byte[,] output, bool intraRefresh)
     {
         var blockSize = block.GetLength(0);
+        blockPrev = SubpixelSampler.Crop(blockPrev, 
+            blockMotion.X / (float)downsample, 
+            blockMotion.Y / (float)downsample,
+            blockSize);
         
-        var xOffset = (blockMotion.X + config.ReferenceBlockPadding) / downsample;
-        var yOffset = (blockMotion.Y + config.ReferenceBlockPadding) / downsample;
+        var sad = 0;
         
         for (var y = 0; y < blockSize; y++)
         for (var x = 0; x < blockSize; x++)
         {
             if (intraRefresh)
             {
-                output[x, y] = (byte) block[x, y];
+                output[x, y] = block[x, y];
             }
             else
             {
                 var currValue =  block[x, y];
-                var prevValue = blockPrev[x + xOffset, y + yOffset];
+                var prevValue = blockPrev[x, y];
                 var residual = currValue - prevValue;
-                output[x, y] = (byte) Math.Clamp(residual + 127, 0, 255);
+                sad += Math.Abs(residual);
+                output[x, y] = MathUtils.BClamp(residual + 127);
             }
         }
+        
+        Console.WriteLine($"residual SAD: {sad}");
     }
 
-    private void ApplyResidual(byte[,] blockPrev, byte[,] block, int downsample, MotionEstimate blockMotion, bool intraRefresh)
+    private void ApplyResidual(byte[,] blockPrev, byte[,] block, int downsample, EstimatedMotion blockMotion, bool intraRefresh)
     {
         var blockSize = block.GetLength(0);
-        
-        var xOffset = (blockMotion.X + config.ReferenceBlockPadding) / downsample;
-        var yOffset = (blockMotion.Y + config.ReferenceBlockPadding) / downsample;
+        blockPrev = SubpixelSampler.Crop(blockPrev, 
+            blockMotion.X / (float)downsample, 
+            blockMotion.Y / (float)downsample,
+            blockSize);
         
         for (var y = 0; y < blockSize; y++)
         for (var x = 0; x < blockSize; x++)
@@ -296,10 +313,9 @@ public class EncoderCore(CodecConfig config)
             }
             else
             {
-                var prevValue = blockPrev[x + xOffset, y + yOffset];
+                var prevValue = blockPrev[x, y];
                 var residual = _workmem1[x, y] - 127;
-                var currValue = residual + (prevValue);
-                block[x, y] = (byte) Math.Clamp(currValue, 0, 255);
+                block[x, y] = MathUtils.BClamp(residual + prevValue);
             }
         }
     }
@@ -307,8 +323,8 @@ public class EncoderCore(CodecConfig config)
     private void QuantizeCoefficients(int blockSize, int[,] workmem, bool intraRefresh, bool isChroma, bool inverse = false)
     {
         // var Q = intraRefresh ? QIntra : QInter;
-        var Q = QIntra;
-        var multiplier = isChroma ? 8 : 8;
+        var Q = QInter;
+        var multiplier = isChroma ? 12 : 8;
         
         var subBlocks = blockSize / 8;
         

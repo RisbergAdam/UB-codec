@@ -1,4 +1,3 @@
-using System.Collections;
 using UBCodec.Core.Utils;
 
 namespace UBCodec.Core.Encoder;
@@ -8,11 +7,15 @@ public class GolombRiceCoder : ICoder
     public int GolombM { get; set; } = 64; // GR parameter for coefficient values
     public int GolombZM { get; set; } = 64; // GR parameter for zero-run lengths
 
+    // Fixed GR parameter (used as the shift K) for median-mode fields.
+    // Both Encode and Decode must use this same value for a valid round-trip.
+    private const int MedianK = 4;
+
     // ── coding modes (2-bit header) ───────────────────────────────────
     // 00 = all-zero, 01 = normal, 10 = median
     private enum CodingMode { AllZero = 0, Normal = 1, Median = 2 }
 
-    public void Encode(int blockSize, int[,] input, ByteStreamWriter output)
+    public void Encode(int blockSize, int[,] input, BitList output)
     {
         int total = blockSize * blockSize;
         var flat = new int[total];
@@ -63,42 +66,42 @@ public class GolombRiceCoder : ICoder
         {
             mode = CodingMode.Normal;
         }
-
-        var bits = new BitList();
+        
         // Precompute log2 parameters once
         int K_RUN = (int)Math.Log2(GolombZM);
         int K_VAL = (int)Math.Log2(GolombM);
-
-        // ── 2-bit mode header ──────────────────────────────────────
-        bits.AddBit(((int)mode >> 1) & 1);
-        bits.AddBit(((int)mode >> 0) & 1);
 
         switch (mode)
         {
             case CodingMode.AllZero:
                 Console.WriteLine("All-zero mode");
+                output.AddBit(0);
                 break;
 
             case CodingMode.Median:
-                var M = 16;
-                Console.WriteLine($"Median mode ({modeValue}, {zeroes})");
-                WriteSignedGolombRice(bits, modeValue, M);
-                WriteGolombRice(bits, tuples.Count, M);
-                WriteGolombRice(bits, zeroes, M);
+                Console.WriteLine($"Median mode ({modeValue}, {tuples.Count})");
+                
+                output.AddBit(1);
+                output.AddBit(0);
+                
+                WriteSignedGolombRice(output, modeValue, MedianK);
+                WriteGolombRice(output, tuples.Count, MedianK);
                 break;
 
             case CodingMode.Normal:
-                Console.WriteLine("Normal mode");
+                Console.WriteLine($"Normal mode ({tuples.Count})");
+                
+                output.AddBit(1);
+                output.AddBit(1);
+                
+                WriteGolombRice(output, tuples.Count, K_RUN);
                 foreach (var (z, coef) in tuples)
                 {
-                    WriteGolombRice(bits, z, K_RUN);
-                    WriteSignedGolombRice(bits, coef, K_VAL);
+                    WriteGolombRice(output, z, K_RUN);
+                    WriteSignedGolombRice(output, coef, K_VAL);
                 }
-                WriteGolombRice(bits, zeroes, K_RUN);
                 break;
         }
-
-        output.WriteBitArray(bits.GetArray());
     }
 
     // ── mode detection ─────────────────────────────────────────────────
@@ -176,10 +179,8 @@ public class GolombRiceCoder : ICoder
         WriteGolombRice(bits, mapped, K);
     }
 
-    public void Decode(int blockSize, ByteStreamReader input, int[,] output)
+    public void Decode(int blockSize, BitList bits, int[,] output)
     {
-        var bits = input.ReadBitArray();
-        int pos = 0;
         int total = blockSize * blockSize;
         var flat = new int[total];
         int decoded = 0;
@@ -187,46 +188,35 @@ public class GolombRiceCoder : ICoder
         int K_RUN = (int)Math.Log2(GolombZM);
         int K_VAL = (int)Math.Log2(GolombM);
 
-        int modeBits = (bits[pos] ? 2 : 0) | (bits[pos + 1] ? 1 : 0);
-        pos += 2;
-        var mode = (CodingMode)modeBits;
-
-        switch (mode)
+        if (bits.NextBit() == 0)
         {
-            case CodingMode.AllZero:
-                // nothing to decode — flat already all zeros
-                break;
-
-            case CodingMode.Median:
-            {
-                int modeValue = UnmapSign(ReadGR(bits, ref pos, K_VAL));
-                int count = ReadGR(bits, ref pos, K_RUN);
-
-                for (int i = 0; i < count; i++)
-                    flat[decoded++] = modeValue;
-
-                int trailingZeroes = ReadGR(bits, ref pos, K_RUN);
-                for (int i = 0; i < trailingZeroes && decoded < total; i++)
-                    flat[decoded++] = 0;
-                break;
-            }
-
-            case CodingMode.Normal:
-                while (decoded < total)
-                {
-                    int run = ReadGR(bits, ref pos, K_RUN);
-
-                    for (int i = 0; i < run && decoded < total; i++)
-                        flat[decoded++] = 0;
-
-                    if (decoded >= total)
-                        break;
-
-                    int mapped = ReadGR(bits, ref pos, K_VAL);
-                    flat[decoded++] = UnmapSign(mapped);
-                }
-                break;
+            // case CodingMode.AllZero
         }
+        else if (bits.NextBit() == 0)
+        {
+            // case CodingMode.Median
+            // These three fields are encoded with the fixed MedianK parameter (see Encode).
+            int modeValue = UnmapSign(ReadGR(bits, MedianK));
+            int count = ReadGR(bits, MedianK);
+
+            for (int i = 0; i < count; i++)
+                flat[decoded++] = modeValue;
+        }
+        else
+        {
+            // case CodingMode.Normal
+            int count = ReadGR(bits, K_RUN);
+            for (int i = 0; i < count; i++)
+            {
+                int run = ReadGR(bits, K_RUN);
+                for (int j = 0; j < run; j++)
+                    flat[decoded++] = 0;
+
+                int mapped = ReadGR(bits, K_VAL);
+                flat[decoded++] = UnmapSign(mapped);
+            }
+        }
+
 
         // ── inverse block-interleaved scan ─────────────────────────────────
         int ix = 0;
@@ -243,26 +233,22 @@ public class GolombRiceCoder : ICoder
 
 // ── bit-level helpers ─────────────────────────────────────────────────
 
-    /// <summary>Decode one non-negative Golomb–Rice codeword from the BitArray.</summary>
-    private static int ReadGR(BitArray bits, ref int pos, int K)
+    /// <summary>Decode one non-negative Golomb–Rice codeword from the BitList.</summary>
+    private static int ReadGR(BitList bits, int K)
     {
         // ---- unary quotient: count 1s until the 0 delimiter ----
         int Q = 0;
-        while (pos < bits.Length && bits[pos])
-        {
+        while (bits.NextBit() == 1)
             Q++;
-            pos++;
-        }
 
-        pos++; // skip the delimiter 0
+        // delimiter 0 already consumed by NextBit
 
         // ---- remainder: K bits, MSB-first ----
         int R = 0;
         for (int i = K - 1; i >= 0; i--)
         {
-            if (pos < bits.Length && bits[pos])
+            if (bits.NextBit() == 1)
                 R |= (1 << i);
-            pos++;
         }
 
         return (Q << K) | R;

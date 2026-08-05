@@ -8,6 +8,16 @@ public class BitList
 
     private int _bitsUsed = 0;
 
+    private int _bitsRead = 0;
+
+    public static BitList FromArray(BitArray array)
+    {
+        var result = new BitList();
+        result._array = array;
+        result._bitsUsed = array.Length * 8;
+        return result;
+    }
+
     public BitArray GetArray()
     {
         var output = new BitArray(_array);
@@ -40,6 +50,13 @@ public class BitList
         {
             AddBit(value & (1 << i));   
         }
+    }
+
+    public int NextBit()
+    {
+        var v = _array[_bitsRead];
+        _bitsRead++;
+        return v ? 1 : 0;
     }
 
     private void _EnsureCapacity(int count)

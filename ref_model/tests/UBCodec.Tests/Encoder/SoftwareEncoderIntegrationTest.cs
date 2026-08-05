@@ -1,5 +1,7 @@
 using CliWrap;
 using UBCodec.Core.Encoder;
+using UBCodec.Core.Encoder.MotionEstimation;
+using UBCodec.Core.Utils;
 using UBCodec.Tests.Util;
 using static UBCodec.Core.Utils.ImageUtils;
 
@@ -100,25 +102,27 @@ public class SoftwareEncoderIntegrationTest
         var config = new CodecConfig
         {
             UVDownsample = 2,
-            BlockSize = 32,
-            Quality = 12,
-            ReferenceBlockPadding = 0,
-            // MotionEstimator = new BlockMotionEstimatorReference(),
-            EstimateMotion = false,
-            MotionEstimator = new NoopMotionEstimator(),
+            BlockSize = 16,
+            Quality = 6,
+            ReferenceBlockPadding = 8,
+            EstimateMotion = true,
+            // MotionEstimator = new IntegerMotionVec(),
+            MotionEstimator = new SubPixelMotionRef(),
             DCT = new DctInt1Transform(),
             Coder = new GolombRiceCoder
             {
-                // ZigZag = true,
-                GolombM = 8,
-                GolombZM = 4,
+                GolombM = 4,
+                GolombZM = 8,
             },
         };
 
-        var frameFiles = await SplitVideo(Path.Join(_root, "resources", "drone.mp4"), 60, blockSize: config.BlockSize, scaleDiv:2);
-        
-        var frame1 = PlanarImage.FromBitmap(ReadPng(Path.Join(_root, "resources", "output_prev.png")), config.UVDownsample);
-        var frame2 = PlanarImage.FromBitmap(ReadPng(frameFiles[42]), config.UVDownsample);
+        var frame1 = PlanarImage.FromBitmap(ImageUtils.BlockResize(ImageUtils.ReadPng(await Ffmpeg.ExtractFrameAsync(
+            Path.Join(_root, "resources", "drone.mp4"), 0, 
+            Path.Join(_root, "artifacts", "frame1.png"))), 32), config.UVDownsample);
+
+        var frame2 = PlanarImage.FromBitmap(ImageUtils.BlockResize(ImageUtils.ReadPng(await Ffmpeg.ExtractFrameAsync(
+            Path.Join(_root, "resources", "drone.mp4"), 1,
+            Path.Join(_root, "artifacts", "frame2.png"))), 32), config.UVDownsample);
 
         var encoder = new EncoderSide(config).Initialize(frame1);
         var decoder = new DecoderSide(config).Initialize(frame1);
@@ -137,7 +141,7 @@ public class SoftwareEncoderIntegrationTest
     [Test]
     public async Task VideoTest()
     {
-        var m = 8; var zm = 8;
+        var m = 4; var zm = 8;
         // foreach (var m in new List<int>([2, 4, 8, 16, 32, 64]))
         // foreach (var zm in new List<int>([2, 4, 8, 16, 32, 64]))
         {
@@ -145,12 +149,11 @@ public class SoftwareEncoderIntegrationTest
             var config = new CodecConfig
             {
                 UVDownsample = 2,
-                Quality = 8,
-                BlockSize = 32,
-                ReferenceBlockPadding = 0,
-                // MotionEstimator = new NoopMotionEstimator(),
-                EstimateMotion = false,
-                MotionEstimator = new BlockMotionRefEstimator(),
+                Quality = 6,
+                BlockSize = 16,
+                ReferenceBlockPadding = 8,
+                EstimateMotion = true,
+                MotionEstimator = new IntegerMotionVec(),
                 DCT = new DctInt1Transform(),
                 Coder = new GolombRiceCoder
                 {
@@ -161,7 +164,7 @@ public class SoftwareEncoderIntegrationTest
 
             var frameFiles = await SplitVideo(
                 Path.Join(_root, "resources", "drone.mp4"),
-                maxFrames:60,
+                maxFrames:20,
                 scaleDiv:2,
                 blockSize:config.BlockSize);
 
@@ -171,12 +174,7 @@ public class SoftwareEncoderIntegrationTest
 
             for (var i = 0; i < frameFiles.Length; i++)
             {
-                if (i == 40)
-                {
-                    Console.WriteLine($"Frame #{i + 1}: {frameFiles[i]}");
-                    WritePng(encoder._prev.ToBitmap(), Path.Join(_root, $"output_prev.png"));
-                }
-                // TestContext.Progress.WriteLine($"frame {i}/{frameFiles.Length}");
+                TestContext.Progress.WriteLine($"frame {i}/{frameFiles.Length}");
                 var frame = PlanarImage.FromBitmap(ReadPng(frameFiles[i]), config.UVDownsample);
                 var bytes = encoder.Encode(frame);
                 totalBytes += bytes.Length;
