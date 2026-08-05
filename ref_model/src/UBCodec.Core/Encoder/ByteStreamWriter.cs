@@ -1,4 +1,5 @@
 using System.Collections;
+using static UBCodec.Core.Utils.EncoderLog;
 
 namespace UBCodec.Core.Encoder;
 
@@ -59,8 +60,8 @@ public class ByteStreamWriter
         foreach (var (region, bytes) in _regionBytes)
             totalBytes += bytes;
         foreach (var (region, bytes) in _regionBytes)
-            Console.WriteLine($"{region}: {bytes} ({bytes*100.0/totalBytes:F2}%))");
-        Console.WriteLine($"Total bytes: {totalBytes}");
+            Info($"{region}: {bytes} ({bytes*100.0/totalBytes:F2}%))");
+        Info($"Total bytes: {totalBytes}");
     }
 
     public void ResetStatistics()

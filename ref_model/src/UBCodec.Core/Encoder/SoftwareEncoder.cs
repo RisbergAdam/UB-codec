@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
-using UBCodec.Core.Encoder;
+using UBCodec.Core.Utils;
 
 namespace UBCodec.Core.Encoder;
 
@@ -12,6 +12,7 @@ public class SoftwareEncoder(CodecConfig config)
     
     public byte[] EncodeFrame(PlanarImage prev, PlanarImage curr, int frameSeq)
     {
+        EncoderLog.Level = config.LogLevel;
         var byteStream = new ByteStreamWriter();
         byteStream.SetRegion("HEADER");
         byteStream.WriteUInt16((ushort) frameSeq);

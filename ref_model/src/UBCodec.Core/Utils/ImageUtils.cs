@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using SkiaSharp;
+using static UBCodec.Core.Utils.EncoderLog;
 
 namespace UBCodec.Core.Utils;
 
@@ -82,7 +83,7 @@ public static class ImageUtils
         s.Start();
         var r = action();
         s.Stop();
-        Console.WriteLine($"TimeExec[{name}]: {s.Elapsed.TotalMilliseconds}ms");
+        Info($"TimeExec[{name}]: {s.Elapsed.TotalMilliseconds}ms");
         return r;
     }
 }

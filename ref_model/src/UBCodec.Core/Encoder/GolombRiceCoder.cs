@@ -1,4 +1,5 @@
 using UBCodec.Core.Utils;
+using static UBCodec.Core.Utils.EncoderLog;
 
 namespace UBCodec.Core.Encoder;
 
@@ -44,7 +45,7 @@ public class GolombRiceCoder : ICoder
             }
             else
             {
-                Console.Write($"({zeroes}, {coef}) ");
+                TraceInline($"({zeroes}, {coef}) ");
                 tuples.Add((zeroes, coef));
                 zeroes = 0;
             }
@@ -74,12 +75,12 @@ public class GolombRiceCoder : ICoder
         switch (mode)
         {
             case CodingMode.AllZero:
-                Console.WriteLine("All-zero mode");
+                Debug("All-zero mode");
                 output.AddBit(0);
                 break;
 
             case CodingMode.Median:
-                Console.WriteLine($"Median mode ({modeValue}, {tuples.Count})");
+                Debug($"Median mode ({modeValue}, {tuples.Count})");
                 
                 output.AddBit(1);
                 output.AddBit(0);
@@ -89,7 +90,7 @@ public class GolombRiceCoder : ICoder
                 break;
 
             case CodingMode.Normal:
-                Console.WriteLine($"Normal mode ({tuples.Count})");
+                Debug($"Normal mode ({tuples.Count})");
                 
                 output.AddBit(1);
                 output.AddBit(1);

@@ -114,6 +114,7 @@ public class SoftwareEncoderIntegrationTest
                 GolombM = 4,
                 GolombZM = 8,
             },
+            LogLevel = LogLevel.Trace
         };
 
         var frame1 = PlanarImage.FromBitmap(ImageUtils.BlockResize(ImageUtils.ReadPng(await Ffmpeg.ExtractFrameAsync(
@@ -153,19 +154,20 @@ public class SoftwareEncoderIntegrationTest
                 BlockSize = 16,
                 ReferenceBlockPadding = 8,
                 EstimateMotion = true,
-                MotionEstimator = new IntegerMotionVec(),
+                MotionEstimator = new SubPixelMotionRef(),
                 DCT = new DctInt1Transform(),
                 Coder = new GolombRiceCoder
                 {
                     GolombM = m,
                     GolombZM = zm,
                 },
+                LogLevel = LogLevel.Off
             };
 
             var frameFiles = await SplitVideo(
                 Path.Join(_root, "resources", "drone.mp4"),
-                maxFrames:20,
-                scaleDiv:2,
+                maxFrames:60*10,
+                scaleDiv:1,
                 blockSize:config.BlockSize);
 
             var encoder = new EncoderSide(config);

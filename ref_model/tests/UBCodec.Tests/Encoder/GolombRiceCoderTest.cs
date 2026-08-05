@@ -351,7 +351,8 @@ public class GolombRiceCoderTest
                 GolombM = m,
                 GolombZM = zm
             };
-            
+
+            EncoderLog.Level = LogLevel.Trace;
             var bits = new BitList();
             coder.Encode(8, data, bits);
             

@@ -3,6 +3,7 @@ using System.Drawing;
 using UBCodec.Core.Encoder.MotionEstimation;
 using UBCodec.Core.Encoder.Sampling;
 using UBCodec.Core.Utils;
+using static UBCodec.Core.Utils.EncoderLog;
 
 namespace UBCodec.Core.Encoder;
 
@@ -25,6 +26,8 @@ public class CodecConfig
     public bool EstimateMotion { get;  set; } = true;
     
     public bool IntraRefresh { get;  set; } = true;
+    
+    public LogLevel LogLevel { get; set; } = LogLevel.Info;
 }
 
 public class EncoderCore(CodecConfig config)
@@ -138,7 +141,7 @@ public class EncoderCore(CodecConfig config)
     
     public void Encode(ByteStreamWriter byteStream, int frameSeq)
     {
-        Console.WriteLine($"==== Starting Encode {frameSeq} ====");
+        Info($"==== Starting Encode {frameSeq} ====");
         var blockMotion = config.EstimateMotion
             ? config.MotionEstimator.Estimate(_YBufferPrev, _YBuffer)
             : new EstimatedMotion
@@ -146,7 +149,7 @@ public class EncoderCore(CodecConfig config)
                 X = config.ReferenceBlockPadding,
                 Y = config.ReferenceBlockPadding
             };
-        Console.WriteLine($"block motion for {_region.X} {_region.Y}: {blockMotion.X} {blockMotion.Y} error {blockMotion.Error}");
+        Info($"block motion for {_region.X} {_region.Y}: {blockMotion.X} {blockMotion.Y} error {blockMotion.Error}");
         var intraRefresh = IsIntraRefresh(frameSeq);
         
         byteStream.SetRegion("BLOCK_HEADER");
@@ -158,7 +161,7 @@ public class EncoderCore(CodecConfig config)
         ComputeResidual(_YBuffer, _YBufferPrev, 1, blockMotion, output: _workmem1, intraRefresh);
         config.DCT.TransformForward(config.BlockSize, _workmem1, output: _workmem2);
         QuantizeCoefficients(config.BlockSize, _workmem2, intraRefresh, false);
-        Console.WriteLine("Coding Y");
+        Debug("Coding Y");
         config.Coder.Encode(config.BlockSize, _workmem2, output: bitlist);
         
         
@@ -166,7 +169,7 @@ public class EncoderCore(CodecConfig config)
         ComputeResidual(_CoBuffer, _CoBufferPrev, config.UVDownsample, blockMotion, output: _workmem1, intraRefresh);
         config.DCT.TransformForward(config.BlockSize/config.UVDownsample, _workmem1, output: _workmem2);
         QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true);
-        Console.WriteLine("Coding Co");
+        Debug("Coding Co");
         config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: bitlist);
         
         
@@ -174,7 +177,7 @@ public class EncoderCore(CodecConfig config)
         ComputeResidual(_CgBuffer, _CgBufferPrev, config.UVDownsample, blockMotion, output: _workmem1, intraRefresh);
         config.DCT.TransformForward(config.BlockSize/config.UVDownsample, _workmem1, output: _workmem2);
         QuantizeCoefficients(config.BlockSize/config.UVDownsample, _workmem2, intraRefresh, true);
-        Console.WriteLine("Coding Cg");
+        Debug("Coding Cg");
         config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: bitlist);
 
         byteStream.SetRegion("BLOCK_DATA");
@@ -293,7 +296,7 @@ public class EncoderCore(CodecConfig config)
             }
         }
         
-        Console.WriteLine($"residual SAD: {sad}");
+        Debug($"residual SAD: {sad}");
     }
 
     private void ApplyResidual(byte[,] blockPrev, byte[,] block, int downsample, EstimatedMotion blockMotion, bool intraRefresh)
@@ -324,7 +327,7 @@ public class EncoderCore(CodecConfig config)
     {
         // var Q = intraRefresh ? QIntra : QInter;
         var Q = QInter;
-        var multiplier = isChroma ? 12 : 8;
+        var multiplier = isChroma ? 12 : intraRefresh ? 4 : 8;
         
         var subBlocks = blockSize / 8;
         
@@ -343,7 +346,7 @@ public class EncoderCore(CodecConfig config)
                 else
                 {
                     workmem[x + 8*xb, y + 8*yb] /= q;
-                    if (Math.Abs(workmem[x + 8 * xb, y + 8 * yb]) <= 1)
+                    if (Math.Abs(workmem[x + 8 * xb, y + 8 * yb]) <= 2)
                     {
                         workmem[x + 8 * xb, y + 8 * yb] = 0;
                     }
