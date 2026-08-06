@@ -20,9 +20,9 @@ public class ByteStreamReader(byte[] _array)
         return (ushort) value;
     }
 
-    public BitArray ReadBitArray()
+    public BitArray ReadBitArray(bool small = false)
     {
-        var byteCount = ReadUInt16();
+        var byteCount = small ? ReadUInt8() : ReadUInt16();
         var bytes = _array.AsSpan().Slice(_ix, byteCount).ToArray();
         var value = new BitArray(bytes);
         _ix += byteCount;

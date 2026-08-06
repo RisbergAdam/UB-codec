@@ -103,11 +103,11 @@ public class SoftwareEncoderIntegrationTest
         {
             UVDownsample = 2,
             BlockSize = 16,
-            Quality = 6,
+            Quality = 2,
             ReferenceBlockPadding = 8,
             EstimateMotion = true,
             // MotionEstimator = new IntegerMotionVec(),
-            MotionEstimator = new SubPixelMotionRef(),
+            MotionEstimator = new SubPixelMotionRef(new DiamondMotionVec()),
             DCT = new DctInt1Transform(),
             Coder = new GolombRiceCoder
             {
@@ -130,13 +130,15 @@ public class SoftwareEncoderIntegrationTest
         
         var bytes = encoder.Encode(frame2);
         var decoded = decoder.Decode(bytes);
-        
-        var bpp = bytes.Length * 8.0 / (frame1.Width * frame1.Height);
-        
+
+        var fm = DistortionollectMetrics(frame2, decoded, bytes.Length);
+
         WritePng(frame2.ToBitmap(), Path.Join(_root, $"output_expect.png"));
         WritePng(decoded.ToBitmap(), Path.Join(_root, $"output_actual.png"));
         
-        Console.WriteLine($"PBB: {bpp:F3}");
+        Console.WriteLine($"PBB: {fm.Bpp:F3}");
+        Console.WriteLine($"Luma PSNR: {fm.LumaPsnr:F2} dB");
+        Console.WriteLine($"Weighted PSNR: {fm.WeightedPsnr:F2} dB");
     }
 
     [Test]
@@ -150,11 +152,11 @@ public class SoftwareEncoderIntegrationTest
             var config = new CodecConfig
             {
                 UVDownsample = 2,
-                Quality = 6,
+                Quality = 4,
                 BlockSize = 16,
                 ReferenceBlockPadding = 8,
                 EstimateMotion = true,
-                MotionEstimator = new SubPixelMotionRef(),
+                MotionEstimator = new SubPixelMotionRef(new DiamondMotionVec()),
                 DCT = new DctInt1Transform(),
                 Coder = new GolombRiceCoder
                 {
@@ -166,8 +168,8 @@ public class SoftwareEncoderIntegrationTest
 
             var frameFiles = await SplitVideo(
                 Path.Join(_root, "resources", "drone.mp4"),
-                maxFrames:60*10,
-                scaleDiv:1,
+                maxFrames:60,
+                scaleDiv:2,
                 blockSize:config.BlockSize);
 
             var encoder = new EncoderSide(config);
@@ -182,7 +184,11 @@ public class SoftwareEncoderIntegrationTest
                 totalBytes += bytes.Length;
                 var frameOut = decoder.Decode(bytes);
                 WritePng(frameOut.ToBitmap(), Path.Join(_artifacts, $"rec_{i + 1:D4}.png"));
-                
+
+                var fm = Distortion.CollectMetrics(frame, frameOut, bytes.Length);
+                TestContext.Progress.WriteLine(
+                    $"- frame {i}: bpp={fm.Bpp:F3} lumaPSNR={fm.LumaPsnr:F2} dB weightedPSNR={fm.WeightedPsnr:F2} dB");
+
                 var bpp = totalBytes * 8.0 / (encoder.BufferSize().Item1 * encoder.BufferSize().Item2 * i);
                 TestContext.Progress.WriteLine($"- Bits per pixel: {bpp:F3}");
             }

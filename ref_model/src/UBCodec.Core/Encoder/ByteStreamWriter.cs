@@ -36,11 +36,18 @@ public class ByteStreamWriter
         return this;
     }
 
-    public ByteStreamWriter WriteBitArray(BitArray array)
+    public ByteStreamWriter WriteBitArray(BitArray array, bool small = false)
     {
         var arrBytes = (array.Count - 1) / 8 + 1;
         _regionBytes[_region] += arrBytes;
-        WriteUInt16((ushort) arrBytes);
+        if (small)
+        {
+            if (arrBytes >= 256) throw new ArgumentException($"Too many bytes for small encoding: {arrBytes}");
+            WriteUInt8((byte) arrBytes);
+        }
+        else
+            WriteUInt16((ushort) arrBytes);
+        
         for (var i = 0; i < arrBytes; i++)
         {
             byte b = 0;

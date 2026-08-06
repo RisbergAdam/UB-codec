@@ -3,13 +3,11 @@ using UBCodec.Core.Encoder.Sampling;
 
 namespace UBCodec.Core.Encoder.MotionEstimation;
 
-public class SubPixelMotionRef : IMotionEstimator
+public class SubPixelMotionRef(IMotionEstimator intEstimator) : IMotionEstimator
 {
-    private IntegerMotionVec _imotion = new();
-    
     public EstimatedMotion Estimate(Span2D<byte> source, Span2D<byte> template)
     {
-        var intEstimate = _imotion.Estimate(source, template);
+        var intEstimate = intEstimator.Estimate(source, template);
 
         if (intEstimate.Error <= 3f) return intEstimate;
         

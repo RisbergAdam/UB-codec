@@ -181,7 +181,7 @@ public class EncoderCore(CodecConfig config)
         config.Coder.Encode(config.BlockSize/config.UVDownsample, _workmem2, output: bitlist);
 
         byteStream.SetRegion("BLOCK_DATA");
-        byteStream.WriteBitArray(bitlist.GetArray());
+        byteStream.WriteBitArray(bitlist.GetArray(), small:true);
     }
 
     public void Decode(ByteStreamReader byteStream, PlanarImage prev, PlanarImage curr, int frameSeq)
@@ -190,7 +190,7 @@ public class EncoderCore(CodecConfig config)
         LoadBlock(prev, curr, region);
         var intraRefresh = IsIntraRefresh(frameSeq);
 
-        var bits = BitList.FromArray(byteStream.ReadBitArray());
+        var bits = BitList.FromArray(byteStream.ReadBitArray(small:true));
         
         // Y-channel
         config.Coder.Decode(config.BlockSize, bits, _workmem2);
@@ -326,8 +326,8 @@ public class EncoderCore(CodecConfig config)
     private void QuantizeCoefficients(int blockSize, int[,] workmem, bool intraRefresh, bool isChroma, bool inverse = false)
     {
         // var Q = intraRefresh ? QIntra : QInter;
-        var Q = QInter;
-        var multiplier = isChroma ? 12 : intraRefresh ? 4 : 8;
+        var Q = QIntra;
+        var multiplier = intraRefresh ? 1 : 4;
         
         var subBlocks = blockSize / 8;
         
